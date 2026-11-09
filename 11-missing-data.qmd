@@ -1,0 +1,566 @@
+---
+format:
+  live-html:
+    webr:
+      packages:
+        - survival
+---
+
+# Missing data {#sec-missing}
+
+```{r}
+#| label: setup-ch11
+#| include: false
+library(survival)
+library(mice)
+library(MatchIt)
+library(MatchThem)
+library(cobalt)
+library(dplyr)
+source("R/simulate_cohort.R")
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+```
+
+{{< include ./_extensions/r-wasm/live/_knitr.qmd >}}
+
+::: {.callout-tip icon="false"}
+## You need this chapter if…
+- `coxph()` reports that **observations were deleted due to missingness**, and it's more than a handful;
+- a **confounder** you need for matching or adjustment has missing values;
+- you're wondering whether to just analyse the complete cases.
+
+*This chapter builds on Chapter 3, and on Chapters 5–7 for the section on matching.*
+:::
+
+::: {.callout-note icon="false"}
+## In this chapter
+**The question.** Real datasets have gaps. What does R do with them by default, when does that give the wrong answer, and what should you do instead?
+
+**By the end of this chapter you will be able to:**
+
+- spot how many patients a model has silently dropped;
+- explain the three kinds of missing data (MCAR, MAR, MNAR), and when a complete-case analysis is biased;
+- carry out **multiple imputation** with the **mice** package, including the survival outcome correctly, and pool the results;
+- combine multiple imputation with propensity score matching using **MatchThem**.
+:::
+
+## What R does by default
+
+Most R modelling functions, including `coxph()`, quietly drop every row
+with a missing value in *any* variable in the model. This is called a
+**complete-case analysis**. In the `lung` data, a few variables have gaps:
+
+```{r}
+#| label: lung-missing
+colSums(is.na(survival::lung))
+```
+
+Each gap looks small. But put several of these variables in one model:
+
+```{r}
+#| label: lung-cc
+coxph(Surv(time, status) ~ sex + age + ph.ecog + wt.loss + meal.cal,
+      data = survival::lung)
+```
+
+The last line of the output says it: 58 of the 228 patients (25%) were
+dropped, and 42 of the 165 deaths. That costs precision, and, as the rest
+of this chapter shows, it can also bias the results. Always check `n` and
+`number of events` against the size of your data.
+
+### Practice: how much has the model dropped?
+
+*This is a live exercise: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used one before.*
+
+Add `meal.cal` (calories eaten at meals) to a Cox model for the `lung`
+data, and find out how many patients the model actually uses. Replace each
+`______`, then click **Run Code**.
+
+```{webr}
+#| setup: true
+#| exercise: ex_cc_n
+library(survival)
+lung <- survival::lung
+```
+
+```{webr}
+#| exercise: ex_cc_n
+#| caption: "Practice: how much has the model dropped?"
+# Missing values in each column
+colSums(is.na(lung))
+
+# Cox model with meal.cal added
+m <- coxph(Surv(time, status) ~ sex + age + ph.ecog + ______, data = lung)
+
+# How many patients did the model use? (last line)
+m$______
+```
+
+::: {.hint exercise="ex_cc_n"}
+::: {.callout-note collapse="false"}
+## Hint 1
+The variable to add is `meal.cal`.
+:::
+:::
+
+::: {.hint exercise="ex_cc_n"}
+::: {.callout-note collapse="false"}
+## Hint 2
+The number of patients used is stored in `m$n`.
+:::
+:::
+
+::: {.solution exercise="ex_cc_n"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+colSums(is.na(lung))
+m <- coxph(Surv(time, status) ~ sex + age + ph.ecog + meal.cal, data = lung)
+m$n
+```
+
+`meal.cal` is missing for 47 patients, so the model uses only 180 of the
+228 patients (and `ph.ecog` drops one more along the way). Nearly a fifth of
+the data has gone, from a single variable with gaps.
+:::
+:::
+
+```{webr}
+#| exercise: ex_cc_n
+#| check: true
+m <- .envir_result$m
+if (!inherits(m, "coxph") || !("meal.cal" %in% all.vars(formula(m)))) {
+  list(correct = FALSE, message = "Add <code>meal.cal</code> to the model.")
+} else if (!is.numeric(.result) || length(.result) != 1 || .result != m$n) {
+  list(correct = FALSE, message = "Make the last line <code>m$n</code>, the number of patients used.")
+} else {
+  list(correct = TRUE, message = sprintf("Correct! The model uses only %d of the 228 patients: %d were dropped because of missing values.", m$n, 228 - m$n))
+}
+```
+
+## When does missing data cause bias?
+
+It depends on **why** the values are missing. There are three kinds:
+
+| Kind | Meaning | Example | Complete-case analysis |
+|---|---|---|---|
+| **MCAR**: missing completely at random | Whether a value is missing has nothing to do with the patient | A sample was lost in the post | Unbiased, but wastes data |
+| **MAR**: missing at random | Whether a value is missing depends on things you **have** recorded | BMI is recorded less often for patients who died, and you know who died | Can be biased. Multiple imputation can fix it |
+| **MNAR**: missing not at random | Whether a value is missing depends on the missing value itself, or on things you haven't recorded | Heavier patients avoid being weighed | Biased, and no standard method fully fixes it |
+
+The names are confusing: "missing at random" doesn't mean the values are
+missing randomly. It means they're missing at random **once you take
+account of** the recorded information.
+
+For a Cox model, one rule of thumb helps. If whether a covariate is
+missing depends on the **outcome** (death, or how long patients survived),
+a complete-case analysis is usually biased. If it depends only on other
+covariates in the model, a complete-case analysis is usually fine, just less
+precise.
+
+## A demonstration with a known truth
+
+We take the simulated cohort from Chapters 5–7 and delete some BMI values.
+BMI is recorded less often for patients who **died** (perhaps their final
+records were incomplete) and for **treated** patients (perhaps they were
+managed at a different clinic):
+
+```{r}
+#| label: make-missing
+set.seed(1)
+p_miss <- plogis(-1.5 + 1.5 * cohort$status + 1 * cohort$treated)
+cohort_miss <- cohort
+cohort_miss$bmi[runif(nrow(cohort)) < p_miss] <- NA
+
+mean(is.na(cohort_miss$bmi))                              # overall
+tapply(is.na(cohort_miss$bmi), cohort_miss$status, mean)  # by death
+tapply(is.na(cohort_miss$bmi), cohort_miss$treated, mean) # by treatment
+```
+
+38% of BMI values are now missing: 62% among patients who died, and 49%
+among treated patients. This is **MAR**: the chance of being missing
+depends on things we have recorded.
+
+Compare the covariate-adjusted Cox model fitted to the full data, before
+anything was deleted, with the complete-case analysis:
+
+```{r}
+#| label: cc-vs-full
+covs <- "treated + age + female + diabetes + bmi + smoker"
+f <- as.formula(paste("Surv(time, status) ~", covs))
+
+full_fit <- coxph(f, data = cohort)        # before deleting anything
+cc_fit   <- coxph(f, data = cohort_miss)   # complete cases only
+
+c(full = exp(coef(full_fit))[["treated"]],
+  complete_case = exp(coef(cc_fit))[["treated"]])
+cc_fit$n
+```
+
+With the full data, the treatment HR is 0.66 (the truth, which we built
+into the data, is 0.70). The complete-case analysis uses only 1238 patients
+and gives **0.50**, badly exaggerating the benefit. The patients it keeps
+are not representative: treated patients who died are the most likely to
+have been dropped.
+
+## Multiple imputation
+
+**Multiple imputation** fills in each missing value with a plausible value,
+predicted from the patient's other information, plus some random variation
+to reflect our uncertainty. It does this several times, making several
+complete datasets that differ only in the filled-in values. Then:
+
+1. **Impute:** create $m$ completed datasets (often 10 to 50).
+2. **Analyse:** fit the same model to each one.
+3. **Pool:** combine the $m$ results with **Rubin's rules**. The pooled
+   estimate is the average of the $m$ estimates. Its standard error combines
+   the uncertainty *within* each analysis with the variation *between* the
+   imputed datasets, so the CI honestly reflects that some values were
+   guessed.
+
+The **mice** package does all three.
+
+### Step 1: include the outcome, the right way
+
+The imputation model must include **everything in the analysis model,
+including the outcome**. It feels like cheating to use the outcome to fill
+in a covariate, but leaving it out biases the results towards no effect.
+
+For survival data, don't use the raw follow-up time. Instead, include the
+event indicator (`status`) and the **Nelson–Aalen estimate** of the
+cumulative hazard at each patient's follow-up time [@white2009]. `mice`
+calculates it with `nelsonaalen()`:
+
+```{r}
+#| label: mi-prepare
+cohort_miss$H <- nelsonaalen(cohort_miss, time, status)
+
+# The variables used for imputation: the analysis variables, status and H
+imp_data <- cohort_miss[, c("age", "female", "diabetes", "bmi", "smoker",
+                            "treated", "status", "H", "time")]
+
+# Keep time in the data (the Cox model needs it), but don't use it to impute
+pred <- make.predictorMatrix(imp_data)
+pred[, "time"] <- 0
+```
+
+### Step 2: impute
+
+```{r}
+#| label: mi-impute
+imp <- mice(imp_data, m = 10, predictorMatrix = pred,
+            seed = 1, printFlag = FALSE)
+imp$method
+```
+
+`imp$method` shows how each variable is imputed. Only `bmi` has missing
+values, and it uses `"pmm"` (*predictive mean matching*): each missing BMI
+is replaced by an observed BMI from a patient with similar predicted
+values, so the filled-in values are always realistic. `seed` makes the
+result reproducible.
+
+### Step 3: analyse and pool
+
+```{r}
+#| label: mi-pool
+fit_mi <- with(imp, coxph(Surv(time, status) ~ treated + age + female +
+                            diabetes + bmi + smoker))
+pooled <- summary(pool(fit_mi), exponentiate = TRUE, conf.int = TRUE)
+pooled[, c("term", "estimate", "2.5 %", "97.5 %")]
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+- `with(imp, coxph(...))` fits the Cox model to each of the 10 completed datasets.
+- `pool()` combines them with Rubin's rules, and `summary(..., exponentiate = TRUE)` reports hazard ratios.
+- **estimate** is the pooled HR, and **2.5 %** and **97.5 %** its 95% CI.
+:::
+
+The pooled HR for treatment is **0.67** (95% CI 0.56 to 0.80), close to
+the full-data value of 0.66, using all 2000 patients. Multiple imputation
+has removed the bias that the complete-case analysis introduced.
+
+### Practice: multiple imputation
+
+*This is a live exercise: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used one before.*
+
+The data with missing BMI values are prepared as in this chapter:
+`imp_data` (including `status` and the Nelson–Aalen estimate `H`) and the
+predictor matrix `pred`. Impute **5** datasets, fit the Cox model to each,
+and pool the results. The first run downloads the mice package, which can
+take a minute. Replace each `______`, then click **Run Code**.
+
+```{webr}
+#| setup: true
+#| exercise: ex_mi
+if (!requireNamespace("mice", quietly = TRUE)) install.packages("mice", quiet = TRUE)
+library(survival)
+library(mice)
+simulate_cohort <- function(n = 2000, hr_treat = 0.70, seed = 2026) {
+  set.seed(seed)
+  age      <- round(pmin(pmax(rnorm(n, 65, 10), 35), 95))
+  female   <- rbinom(n, 1, 0.45)
+  diabetes <- rbinom(n, 1, plogis(-1.4 + 0.04 * (age - 65)))
+  bmi      <- round(rnorm(n, 28, 4.5), 1)
+  smoker   <- rbinom(n, 1, 0.25)
+  lp_treat <- -0.6 + 0.06 * (age - 65) + 1.0 * diabetes + 0.08 * (bmi - 28) -
+    0.3 * female + 0.4 * smoker
+  treated <- rbinom(n, 1, plogis(lp_treat))
+  lp_death <- log(hr_treat) * treated + 0.06 * (age - 65) + 0.6 * diabetes +
+    0.03 * (bmi - 28) - 0.25 * female + 0.55 * smoker
+  shape  <- 1.2
+  lambda <- 0.05                       # baseline hazard scale (per year)
+  t_event <- (-log(runif(n)) / (lambda * exp(lp_death)))^(1 / shape)
+  t_admin   <- runif(n, 3, 8)          # study ends 3-8 years after entry
+  t_dropout <- rexp(n, rate = 0.04)
+  t_cens    <- pmin(t_admin, t_dropout)
+  time   <- pmin(t_event, t_cens)
+  status <- as.integer(t_event <= t_cens)
+  data.frame(
+    id       = seq_len(n),
+    age, female, diabetes, bmi, smoker,
+    treated,
+    time     = round(time, 3),
+    status
+  )
+}
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+set.seed(1)
+p_miss <- plogis(-1.5 + 1.5 * cohort$status + 1 * cohort$treated)
+cohort_miss <- cohort
+cohort_miss$bmi[runif(nrow(cohort)) < p_miss] <- NA
+cohort_miss$H <- nelsonaalen(cohort_miss, time, status)
+imp_data <- cohort_miss[, c("age", "female", "diabetes", "bmi", "smoker",
+                            "treated", "status", "H", "time")]
+pred <- make.predictorMatrix(imp_data)
+pred[, "time"] <- 0
+rm(p_miss)
+```
+
+```{webr}
+#| exercise: ex_mi
+#| caption: "Practice: multiple imputation"
+imp <- mice(imp_data, m = ______, predictorMatrix = pred,
+            seed = 1, printFlag = FALSE)
+
+fit_mi <- with(imp, coxph(Surv(time, status) ~ treated + age + female +
+                            diabetes + bmi + smoker))
+
+summary(______(fit_mi), exponentiate = TRUE, conf.int = TRUE)
+```
+
+::: {.hint exercise="ex_mi"}
+::: {.callout-note collapse="false"}
+## Hint 1
+`m = 5` creates 5 imputed datasets.
+:::
+:::
+
+::: {.hint exercise="ex_mi"}
+::: {.callout-note collapse="false"}
+## Hint 2
+Rubin's rules are applied by `pool()`.
+:::
+:::
+
+::: {.solution exercise="ex_mi"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+imp <- mice(imp_data, m = 5, predictorMatrix = pred,
+            seed = 1, printFlag = FALSE)
+fit_mi <- with(imp, coxph(Surv(time, status) ~ treated + age + female +
+                            diabetes + bmi + smoker))
+summary(pool(fit_mi), exponentiate = TRUE, conf.int = TRUE)
+```
+
+With 5 imputations, the pooled HR for treatment is about 0.68, much
+closer to the full-data value (0.66) than the complete-case estimate (0.50).
+With more imputations the result would be a little more stable.
+:::
+:::
+
+```{webr}
+#| exercise: ex_mi
+#| check: true
+r <- .result
+imp <- .envir_result$imp
+if (!inherits(imp, "mids") || imp$m != 5) {
+  list(correct = FALSE, message = "Create 5 imputed datasets: <code>m = 5</code>.")
+} else if (!inherits(r, "mipo.summary") || !("treated" %in% as.character(r$term)) || r$estimate[as.character(r$term) == "treated"] < 0) {
+  list(correct = FALSE, message = "Make the last line <code>summary(pool(fit_mi), exponentiate = TRUE, conf.int = TRUE)</code>.")
+} else {
+  est <- r$estimate[as.character(r$term) == "treated"]
+  list(correct = TRUE, message = sprintf("Correct! Pooled HR for treatment = %.2f, close to the full-data value of 0.66. The complete-case analysis gave 0.50.", est))
+}
+```
+
+## Missing data and propensity score matching
+
+Missing confounders cause the same problem for matching: `matchit()`
+needs complete data, so the complete cases are matched, with the same
+bias:
+
+```{r}
+#| label: mt-cc
+# matchit() needs complete data, so keep only the complete cases
+cc_data <- na.omit(cohort_miss[, c("age", "female", "diabetes", "bmi",
+                                   "smoker", "treated", "time", "status")])
+
+m_cc <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                data = cc_data, method = "nearest",
+                link = "linear.logit", caliper = 0.2)
+coxph(Surv(time, status) ~ treated, data = match.data(m_cc),
+      robust = TRUE, cluster = subclass) |>
+  broom::tidy(exponentiate = TRUE, conf.int = TRUE) |>
+  select(term, estimate, conf.low, conf.high)
+```
+
+The **MatchThem** package matches *within* each imputed dataset, then
+pools the results [@pishgar2021]. It works just like `matchit()`, with
+`datasets = imp` in place of `data`:
+
+```{r}
+#| label: mt-match
+mt <- matchthem(treated ~ age + female + diabetes + bmi + smoker,
+                datasets = imp, approach = "within",
+                method = "nearest", link = "linear.logit", caliper = 0.2)
+
+# Balance, summarised across the 10 imputed datasets
+bal.tab(mt, binary = "std", thresholds = c(m = 0.1))
+```
+
+```{r}
+#| label: mt-pool
+fit_mt <- with(mt, coxph(Surv(time, status) ~ treated,
+                         weights = weights, robust = TRUE,
+                         cluster = subclass))
+summary(pool(fit_mt), exponentiate = TRUE, conf.int = TRUE)[
+  , c("term", "estimate", "2.5 %", "97.5 %")]
+```
+
+The complete-case matched HR is 0.56. After multiple imputation and
+matching within each dataset, it's **0.75** (95% CI 0.62 to 0.91), close
+to the true marginal HR of about 0.73 from Chapter 7.
+
+## Practical advice
+
+- **Look before you analyse.** Count the missing values in each variable,
+  and compare patients with and without missing data, as for loss to
+  follow-up in @sec-informative.
+- **How many imputations?** A common rule of thumb is at least as many as
+  the percentage of incomplete cases (here 38%, so about 40). Ten is fine
+  for learning. Increase $m$ until the results stop changing.
+- **What to include.** Every variable in the analysis model, the outcome
+  (`status` and the Nelson–Aalen estimate), and any other variables that
+  predict missingness or the missing values.
+- **Report it.** Say how much was missing, how you imputed it (method,
+  variables, $m$), and compare with the complete-case analysis.
+- **MNAR can't be fixed by imputation.** If values are probably missing for
+  reasons you didn't record, say so, and consider a sensitivity analysis
+  that shifts the imputed values up or down.
+- **When is complete-case analysis fine?** When very little is missing
+  (a few percent), or when missingness depends only on covariates in the
+  model and not on the outcome.
+
+## Quick quiz {.unnumbered}
+
+Choose an answer to each question. You'll get instant feedback and can change your answer as often as you like.
+
+```{ojs}
+//| echo: false
+import {quiz} from "./js/survtools.js"
+```
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "A blood test result is missing more often for patients who later died. Death is recorded for everyone. What kind of missingness is this?",
+  "options": ["MCAR", "MAR", "MNAR", "It isn't missing data"],
+  "answer": 1,
+  "why": "Whether the value is missing depends on something that is recorded (death), so it's missing at random given the data. A complete-case Cox analysis is likely to be biased; multiple imputation including the outcome can fix it.",
+  "hints": [
+   "MCAR would mean missingness has nothing to do with the patient.",
+   "",
+   "MNAR would mean it depends on the missing value itself, or on something not recorded.",
+   "The test result is unknown for these patients."
+  ]
+ },
+ {
+  "q": "Why should the survival outcome be included when imputing a missing covariate?",
+  "options": [
+   "Leaving it out biases the covariate's estimated effect towards no effect",
+   "It makes the imputation run faster",
+   "It isn't needed: the outcome should never be used",
+   "Because <code>mice()</code> fails without it"
+  ],
+  "answer": 0,
+  "why": "If the imputation model ignores the outcome, the imputed values have no relationship with it, which dilutes the association. Include status and the Nelson–Aalen estimate.",
+  "hints": [
+   "",
+   "It's about bias, not speed.",
+   "It feels like cheating, but it's needed to avoid bias.",
+   "<code>mice()</code> runs either way."
+  ]
+ },
+ {
+  "q": "What does <code>pool()</code> do?",
+  "options": [
+   "Combines the results from the imputed datasets using Rubin's rules",
+   "Stacks the imputed datasets into one big dataset and fits a single model",
+   "Picks the imputed dataset with the best fit",
+   "Fills in the missing values"
+  ],
+  "answer": 0,
+  "why": "pool() averages the estimates and combines the within- and between-imputation variation into the standard error.",
+  "hints": [
+   "",
+   "Stacking would make the CI far too narrow.",
+   "Every imputed dataset is used.",
+   "That's what <code>mice()</code> does."
+  ]
+ },
+ {
+  "q": "A confounder is missing for 30% of patients. You want to use propensity score matching. What is a good approach?",
+  "options": [
+   "Multiply impute, then match within each imputed dataset and pool (e.g. MatchThem)",
+   "Match the complete cases only",
+   "Replace each missing value with the mean",
+   "Leave the confounder out of the propensity score model"
+  ],
+  "answer": 0,
+  "why": "MatchThem matches within each imputed dataset and pools the effect estimates. Complete cases can be biased, mean imputation understates uncertainty, and leaving out a confounder leaves confounding.",
+  "hints": [
+   "",
+   "That can be biased, as in this chapter's example (HR 0.56 instead of about 0.73).",
+   "Single mean imputation ignores the uncertainty and can distort relationships.",
+   "Then nothing balances that confounder."
+  ]
+ }
+])
+```
+
+## Summary
+
+::: {.callout-important icon="false"}
+## Key points
+- R drops incomplete rows by default (**complete-case analysis**). Always check `n` and `number of events`.
+- Missing data are **MCAR**, **MAR** or **MNAR**. If missingness depends on the outcome, complete-case analysis is usually biased.
+- **Multiple imputation** fills in the gaps several times, analyses each completed dataset, and **pools** the results with Rubin's rules (`mice()`, `with()`, `pool()`).
+- Include the **outcome** in the imputation model: `status` and the **Nelson–Aalen** cumulative hazard (`nelsonaalen()`), not the raw time.
+- With propensity score matching, impute first, then match **within** each imputed dataset and pool (**MatchThem**).
+- Imputation can't fix MNAR. Report how much was missing and what you did, and compare with the complete-case analysis.
+:::
+
+**Answering the question.** By default, R analyses only the complete cases. When missingness depends on the outcome, that can be badly biased: in our example, the treatment HR was 0.50 instead of 0.66. Multiple imputation, including the outcome correctly, gave 0.67, and the same idea combined with matching gave 0.75 against a true marginal value of about 0.73.
+
+## Further reading
+
+All of these are free to read online unless marked otherwise. The whole
+book's reading list, grouped by topic, is in @sec-further-reading.
+
+- @sterne2009: **Start here.** A readable guide to multiple imputation, and how it can go wrong.
+- @white2009: How to include a survival outcome when imputing covariates for a Cox model (the Nelson–Aalen approach). (May need institutional access.)
+- @vanbuuren2018: A free online book by the author of mice, from the basics to advanced topics.
+- @pishgar2021: The MatchThem package, for matching and weighting after multiple imputation.

@@ -1,0 +1,38 @@
+# Publishes the book to GitHub Pages whenever you push to the main branch.
+#
+# The R code is NOT re-run here. Quarto uses the results stored in _freeze/,
+# which you create by rendering locally (`quarto render`) and committing.
+# So this workflow does not need R or any R packages.
+#
+# One-time setup: see "Publishing on GitHub Pages" in README.md.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: main
+
+name: Quarto Publish
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      # Pinned to the version the book was built and tested with. To upgrade,
+      # install the new version locally, check the book (especially the live
+      # exercises), then change the number here.
+      - name: Set up Quarto
+        uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: 1.9.38
+
+      - name: Render and publish to GitHub Pages
+        uses: quarto-dev/quarto-actions/publish@v2
+        with:
+          target: gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

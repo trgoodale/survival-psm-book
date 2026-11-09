@@ -1,0 +1,703 @@
+---
+format:
+  live-html:
+    webr:
+      packages:
+        - survival
+---
+
+# Weighting and other matching methods {#sec-weighting}
+
+```{r}
+#| label: setup-ch9
+#| include: false
+library(survival)
+library(ggsurvfit)
+library(MatchIt)
+library(cobalt)
+library(WeightIt)
+library(dplyr)
+library(ggplot2)
+source("R/simulate_cohort.R")
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+```
+
+{{< include ./_extensions/r-wasm/live/_knitr.qmd >}}
+
+::: {.callout-tip icon="false"}
+## You need this chapter if…
+- you want the treatment effect for the **whole population** (the ATE), not just for the kind of patients who were treated;
+- caliper matching **drops too many treated patients**;
+- you want a **second method** as a sensitivity analysis, or a reviewer asks for inverse probability weighting;
+- you're considering other forms of matching: with replacement, exact, optimal or full matching.
+
+Otherwise, the 1:1 nearest-neighbour matching in Chapters 5–7 is a sound default.
+
+*This chapter builds on Chapters 5–7.*
+:::
+
+::: {.callout-note icon="false"}
+## In this chapter
+**The question.** Matching throws away patients who have no close match. Is there a way to use everyone, and when should you use another kind of matching instead?
+
+**By the end of this chapter you will be able to:**
+
+- explain how **inverse probability of treatment weighting (IPTW)** balances confounders, and calculate ATE and ATT weights;
+- check the weights and the balance they achieve, and fit weighted KM curves and a weighted Cox model;
+- use the **WeightIt** package;
+- describe matching with replacement, exact, optimal and full matching, and choose a method for your question.
+:::
+
+## Weighting instead of matching
+
+Matching makes the treated and untreated groups comparable by **choosing**
+patients. Weighting does it by **counting some patients more than others**.
+
+Think about a patient with a propensity score of 0.2: someone like them
+had only a 20% chance of being treated. Out of 100 such patients, about 20
+would be treated and 80 not. If we want a comparison as if treatment had
+been decided at random, the 20 treated patients are under-represented.
+Giving each of them a weight of $1/0.2 = 5$ lets them stand for all 100.
+The 80 untreated patients each get a weight of $1/(1 - 0.2) = 1.25$, which
+also adds up to 100.
+
+Do this for everyone, and both groups end up looking like the **whole
+population**. In this weighted *pseudo-population*, treatment is no longer
+related to the measured confounders, just as in a randomised trial. This is
+**inverse probability of treatment weighting (IPTW)**: each patient is
+weighted by the inverse (one divided by) of the probability of the
+treatment they actually received.
+
+The weights depend on whose effect you want (the *estimand*, @sec-matching):
+
+| Estimand | Weight for a treated patient | Weight for an untreated patient | Both groups are made to look like… |
+|---|---|---|---|
+| **ATE** | $1 / e$ | $1 / (1 - e)$ | the whole population |
+| **ATT** | 1 | $e / (1 - e)$ | the treated patients |
+
+Here $e$ is the patient's propensity score. ATT weights leave the treated
+patients as they are, and reweight the untreated patients to look like
+them. That's the same target as 1:1 matching, but nobody is discarded.
+
+## Worked example: IPTW in the simulated cohort
+
+We use the same simulated cohort as in Chapters 5–7 (@sec-cohort), and the
+same propensity score model:
+
+```{r}
+#| label: iptw-weights
+ps_model <- glm(treated ~ age + female + diabetes + bmi + smoker,
+                data = cohort, family = binomial)
+cohort$ps <- fitted(ps_model)
+
+# ATE weights: 1/e for treated patients, 1/(1 - e) for untreated patients
+cohort$w_ate <- ifelse(cohort$treated == 1,
+                       1 / cohort$ps,
+                       1 / (1 - cohort$ps))
+
+summary(cohort$w_ate)
+```
+
+### Step 1: look at the weights
+
+The weights range from about 1.1 to 11.7. The largest weight belongs to
+this patient:
+
+```{r}
+#| label: iptw-max
+cohort[which.max(cohort$w_ate), c("age", "female", "diabetes", "bmi",
+                                  "smoker", "treated", "ps", "w_ate")]
+```
+
+A 40-year-old non-smoking woman without diabetes had only a 9% chance of
+being treated, but was treated. She stands in for about 12 patients like
+her, most of whom weren't treated. A few large weights are normal. But
+when a handful of patients carry very large weights, the results depend
+heavily on them, and the estimate becomes imprecise.
+
+A useful summary is the **effective sample size (ESS)**: roughly, how many
+equally weighted patients the weighted sample is worth. `bal.tab()` reports
+it in the next step. Here, the 849 treated patients are worth about 673 after
+weighting, which is fine. An ESS that is much smaller than the group size is
+a warning sign.
+
+### Step 2: check balance
+
+`bal.tab()` checks balance in the weighted sample, just as it did after
+matching:
+
+```{r}
+#| label: iptw-balance
+bal.tab(treated ~ age + female + diabetes + bmi + smoker,
+        data = cohort, weights = "w_ate",
+        s.d.denom = "pooled", binary = "std",
+        thresholds = c(m = 0.1))
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+- **Diff.Adj**: the SMD in the *weighted* data. Every value should be close to 0 (|SMD| < 0.1).
+- **Effective sample sizes**: the size of each group before (`Unadjusted`) and after (`Adjusted`) weighting.
+:::
+
+Every SMD is now very close to zero, and *every patient has been kept*.
+
+### Step 3: weighted KM curves
+
+`survfit()` and `survfit2()` accept a `weights` argument. The weighted KM
+curves estimate what survival would have been if everyone had been
+treated, and if no-one had:
+
+```{r}
+#| label: fig-iptw-km
+#| fig-cap: "IPTW-weighted Kaplan–Meier curves (ATE weights)."
+#| fig-height: 4
+survfit2(Surv(time, status) ~ treated, data = cohort, weights = w_ate) |>
+  ggsurvfit(linewidth = 1) +
+  scale_ggsurvfit(x_scales = list(breaks = 0:8)) +
+  labs(x = "Years")
+```
+
+### Step 4: weighted Cox model
+
+```{r}
+#| label: iptw-cox
+cox_ate <- coxph(Surv(time, status) ~ treated, data = cohort,
+                 weights = w_ate, robust = TRUE)
+summary(cox_ate)$conf.int
+```
+
+With weights, you need a **robust** (sandwich) standard error. An ordinary
+standard error would treat a weight of 5 as five real patients, and the
+confidence interval would be far too narrow. Recent versions of the
+survival package use a robust standard error automatically when the
+weights aren't all 0 or 1, but writing `robust = TRUE` makes it explicit,
+and protects you in older versions and in other software.
+
+The HR is 0.70 (95% CI 0.59 to 0.83). Like the matched model in Chapter 7,
+this is a **marginal** HR, but now for the whole population rather than for
+the treated. Its true value, worked out by the same brute-force simulation
+as in Chapter 7, is about 0.73, well within the confidence interval.
+
+ATT weights give an estimate for the same target as 1:1 matching:
+
+```{r}
+#| label: iptw-att
+cohort$w_att <- ifelse(cohort$treated == 1,
+                       1,
+                       cohort$ps / (1 - cohort$ps))
+
+coxph(Surv(time, status) ~ treated, data = cohort,
+      weights = w_att, robust = TRUE) |>
+  broom::tidy(exponentiate = TRUE, conf.int = TRUE) |>
+  select(term, estimate, conf.low, conf.high)
+```
+
+HR 0.70 (95% CI 0.59 to 0.83), compared with 0.68 from matching, but now
+without dropping the 135 treated patients who had no match.
+
+### Practice: ATT weights
+
+*This is a live exercise: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used one before.*
+
+The simulated `cohort` is loaded, with each patient's propensity score in
+`ps`. Calculate **ATT weights**, check balance, and fit the weighted Cox
+model. Replace each `______`, then click **Run Code**.
+
+```{webr}
+#| setup: true
+#| exercise: ex_att
+for (pkg in c("MatchIt", "cobalt")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, quiet = TRUE)
+}
+library(MatchIt)
+library(cobalt)
+simulate_cohort <- function(n = 2000, hr_treat = 0.70, seed = 2026) {
+  set.seed(seed)
+  age      <- round(pmin(pmax(rnorm(n, 65, 10), 35), 95))
+  female   <- rbinom(n, 1, 0.45)
+  diabetes <- rbinom(n, 1, plogis(-1.4 + 0.04 * (age - 65)))
+  bmi      <- round(rnorm(n, 28, 4.5), 1)
+  smoker   <- rbinom(n, 1, 0.25)
+  lp_treat <- -0.6 + 0.06 * (age - 65) + 1.0 * diabetes + 0.08 * (bmi - 28) -
+    0.3 * female + 0.4 * smoker
+  treated <- rbinom(n, 1, plogis(lp_treat))
+  lp_death <- log(hr_treat) * treated + 0.06 * (age - 65) + 0.6 * diabetes +
+    0.03 * (bmi - 28) - 0.25 * female + 0.55 * smoker
+  shape  <- 1.2
+  lambda <- 0.05                       # baseline hazard scale (per year)
+  t_event <- (-log(runif(n)) / (lambda * exp(lp_death)))^(1 / shape)
+  t_admin   <- runif(n, 3, 8)          # study ends 3-8 years after entry
+  t_dropout <- rexp(n, rate = 0.04)
+  t_cens    <- pmin(t_admin, t_dropout)
+  time   <- pmin(t_event, t_cens)
+  status <- as.integer(t_event <= t_cens)
+  data.frame(
+    id       = seq_len(n),
+    age, female, diabetes, bmi, smoker,
+    treated,
+    time     = round(time, 3),
+    status
+  )
+}
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+cohort$ps <- fitted(glm(treated ~ age + female + diabetes + bmi + smoker,
+                        data = cohort, family = binomial))
+```
+
+```{webr}
+#| exercise: ex_att
+#| caption: "Practice: ATT weights"
+# ATT weights: 1 for treated patients, e/(1 - e) for untreated patients
+cohort$w_att <- ifelse(cohort$treated == 1,
+                       ______,
+                       cohort$ps / (1 - ______))
+
+# Balance in the weighted sample
+bal.tab(treated ~ age + female + diabetes + bmi + smoker,
+        data = cohort, weights = "w_att", binary = "std",
+        thresholds = c(m = 0.1))
+
+# Weighted Cox model, with a robust standard error
+cox_att <- coxph(Surv(time, status) ~ treated, data = cohort,
+                 weights = w_att, robust = ______)
+summary(cox_att)$conf.int
+```
+
+::: {.hint exercise="ex_att"}
+::: {.callout-note collapse="false"}
+## Hint 1
+Treated patients get a weight of `1`. For untreated patients, the denominator is `1 - cohort$ps`.
+:::
+:::
+
+::: {.hint exercise="ex_att"}
+::: {.callout-note collapse="false"}
+## Hint 2
+With weights, always use `robust = TRUE`.
+:::
+:::
+
+::: {.solution exercise="ex_att"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+cohort$w_att <- ifelse(cohort$treated == 1,
+                       1,
+                       cohort$ps / (1 - cohort$ps))
+bal.tab(treated ~ age + female + diabetes + bmi + smoker,
+        data = cohort, weights = "w_att", binary = "std",
+        thresholds = c(m = 0.1))
+cox_att <- coxph(Surv(time, status) ~ treated, data = cohort,
+                 weights = w_att, robust = TRUE)
+summary(cox_att)$conf.int
+```
+
+Every covariate is balanced after weighting. The HR is 0.70 (95% CI 0.59
+to 0.83), close to the 0.68 from 1:1 matching, but using all 2000
+patients rather than 1428.
+:::
+:::
+
+```{webr}
+#| exercise: ex_att
+#| check: true
+env <- .envir_result
+w <- env$cohort$w_att
+ok_w <- !is.null(w) && isTRUE(all.equal(unname(w), unname(ifelse(env$cohort$treated == 1, 1, env$cohort$ps / (1 - env$cohort$ps)))))
+m <- env$cox_att
+if (!ok_w) {
+  list(correct = FALSE, message = "Check the weights: 1 for treated patients, and <code>ps / (1 - ps)</code> for untreated patients.")
+} else if (!inherits(m, "coxph") || is.null(m$naive.var)) {
+  list(correct = FALSE, message = "Fit the weighted Cox model with <code>robust = TRUE</code>.")
+} else {
+  list(correct = TRUE, message = sprintf("Correct! ATT-weighted HR = %.2f, close to the 0.68 from matching, using all 2000 patients.", exp(coef(m))[[1]]))
+}
+```
+
+## Extreme weights: stabilising and trimming
+
+IPTW has a weak spot. A treated patient with a propensity score of 0.01
+gets a weight of 100. A few patients like that can dominate the analysis.
+Large weights are a sign of poor **overlap**: patients who were almost
+certain to get (or not get) treatment, with hardly anyone comparable in the
+other group. Two common remedies:
+
+- **Stabilised weights.** Multiply each weight by the overall proportion
+  of patients who got the treatment they received. The weights then average
+  about 1 and add up to about the real sample size. The HR doesn't change,
+  but the weights are easier to inspect.
+- **Excluding patients with extreme scores** (for example, propensity
+  scores below 0.05 or above 0.95). This removes the patients who have no
+  comparable counterparts, but it changes **who the result applies to**, so
+  say who was excluded.
+- **Capping (truncating) the weights**, for example at their 99th
+  percentile. Everyone is kept and the estimate is more stable, but the
+  capped weights may no longer balance the groups, which can **bring back
+  bias**. The app below shows how badly this can go wrong.
+
+Whichever you do, **check balance again** afterwards, and report the range
+of the weights or the ESS alongside an IPTW analysis.
+
+## Interactive app: matching and weighting side by side {#sec-app-weighting}
+
+This app uses the same simulated patients as the matching app in Chapter 5
+(@sec-app-psm): two confounders, **age** and **severity**, and a continuous
+outcome score with a known treatment effect. Here it compares matching
+with IPTW (ATE weights). In this simulation, the treatment has the same
+effect for everyone, so the ATT and the ATE are the same, and both methods
+are aiming at the true effect.
+
+In the scatter plot, each dot is a patient. Tick **Size dots by weight** to
+see the weighted pseudo-population: untreated patients who look like the
+treated ones, and treated patients who look like the untreated ones, become
+big.
+
+::: {.app}
+```{ojs}
+//| echo: false
+import {simConfounded, weightingResults} from "./js/extras.js"
+formGrid = inputs => html`<div class="form-grid">${Object.values(inputs)}</div>`
+```
+
+```{ojs}
+//| echo: false
+viewof wtScen = Inputs.radio(["Default", "Strong confounding", "Strong confounding, weights capped at 10", "Severity unmeasured"], {value: "Default", label: "Scenario"})
+wtP = ({"Default": {}, "Strong confounding": {"gamma": 2, "beta": 2}, "Strong confounding, weights capped at 10": {"gamma": 2, "beta": 2, "cap": "10"}, "Severity unmeasured": {"sev": false}})[wtScen]
+viewof wt = Inputs.form({
+  n:     Inputs.range([200, 2000], {value: wtP.n ?? 800, step: 100, label: "Patients"}),
+  gamma: Inputs.range([0, 3], {value: wtP.gamma ?? 1, step: 0.1, label: "Confounders → treatment (strength)"}),
+  beta:  Inputs.range([0, 2], {value: wtP.beta ?? 1, step: 0.1, label: "Confounders → outcome (strength)"}),
+  tau:   Inputs.range([-5, 5], {value: wtP.tau ?? 2, step: 0.5, label: "TRUE treatment effect"}),
+  cap:   Inputs.select(["none", "20", "10", "5"], {value: wtP.cap ?? "none", label: "Cap the weights at"}),
+  sev:   Inputs.toggle({label: "Severity is measured (in PS model)", value: wtP.sev ?? true}),
+  size:  Inputs.toggle({label: "Size dots by weight", value: true}),
+  seed:  Inputs.range([1, 100], {value: wtP.seed ?? 11, step: 1, label: "Random seed"})
+}, {template: formGrid})
+```
+
+```{ojs}
+//| echo: false
+wtData = simConfounded({n: wt.n, gamma: wt.gamma, beta: wt.beta, tau: wt.tau, seed: wt.seed})
+wtRes = weightingResults(wtData, {sevMeasured: wt.sev, cap: wt.cap === "none" ? Infinity : +wt.cap, caliper: 0.2})
+```
+
+```{ojs}
+//| echo: false
+{
+  const fmt = v => isNaN(v) ? "–" : (v >= 0 ? "+" : "") + v.toFixed(2);
+  const err = v => isNaN(v) ? "" : `(bias ${fmt(v - wt.tau)})`;
+  return html`<div class="estimates">
+  <div class="est"><span>True effect</span><b>${fmt(wt.tau)}</b><small>&nbsp;</small></div>
+  <div class="est bad"><span>Naive difference</span><b>${fmt(wtRes.naive)}</b><small>${err(wtRes.naive)}</small></div>
+  <div class="est good"><span>1:1 matching (caliper 0.2)</span><b>${fmt(wtRes.matched)}</b><small>${err(wtRes.matched)}</small></div>
+  <div class="est good"><span>IPTW (ATE weights)</span><b>${fmt(wtRes.iptw)}</b><small>${err(wtRes.iptw)}</small></div>
+  </div>
+  <p style="margin-top:.5em"><b>Matching</b> kept ${wtRes.nPairs} of ${wtRes.nT} treated patients.
+  <b>Weighting</b> kept everyone. Largest weight: <b>${wtRes.maxW.toFixed(1)}</b>.
+  Effective sample size: ${wtRes.essT.toFixed(0)} of ${wtRes.nT} treated, ${wtRes.essC.toFixed(0)} of ${wtRes.nC} untreated.</p>`;
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const pts = wtData.map((d, i) => ({...d, w: wtRes.w[i], group: d.treat ? "Treated" : "Untreated"}));
+  const scatter = Plot.plot({
+    title: wt.size ? "Patients, sized by their weight" : "Patients (unweighted)",
+    height: 330, width: 420, x: {label: "Age (standardised) →"}, y: {label: "↑ Severity (standardised)"},
+    color: {legend: true, domain: ["Treated", "Untreated"], range: ["#0072B2", "#E69F00"]},
+    r: {range: [1.5, 14], domain: [0, Math.max(...wtRes.w)]},
+    marks: [Plot.dot(pts, {x: "age", y: "sev", fill: "group", fillOpacity: 0.45, r: wt.size ? "w" : () => 2.5})]
+  });
+  const love = Plot.plot({
+    title: "Balance: |standardised mean difference|", height: 200, width: 420, marginLeft: 80,
+    x: {label: "|SMD|", domain: [0, Math.max(0.5, ...wtRes.balance.map(d => Math.abs(d.smd)))], grid: true}, y: {label: null},
+    color: {legend: true, domain: ["Before", "Matched", "Weighted"], range: ["#D55E00", "#009E73", "#0072B2"]},
+    symbol: {domain: ["Before", "Matched", "Weighted"], range: ["circle", "triangle", "square"]},
+    marks: [Plot.ruleX([0.1], {stroke: "#888", strokeDasharray: "4,3"}),
+            Plot.dot(wtRes.balance, {x: d => Math.abs(d.smd), y: "variable", fill: "sample", symbol: "sample", r: 6})]
+  });
+  return html`<div style="display:flex; flex-wrap:wrap; gap:1em">${scatter}${love}</div>`;
+}
+```
+:::
+
+::: {.callout-tip}
+## Things to try
+For each one, **predict first**, then pick the scenario and check.
+
+1. On the **Default** scenario, look at the scatter plot with and without
+   **Size dots by weight**. **Predict:** which patients get the biggest
+   weights? How do matching and weighting compare?
+2. **Predict:** what happens to the weights, and to the IPTW estimate, when
+   confounding is strong and the groups barely overlap? *Then* pick
+   **Strong confounding**.
+3. **Predict:** will capping the weights at 10 help? *Then* pick **Strong
+   confounding, weights capped at 10**.
+4. **Predict:** if severity isn't measured, can weighting succeed where
+   matching fails? *Then* pick **Severity unmeasured**.
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Answers: what you should see
+1. The biggest dots are **untreated patients in the top right** (older,
+   more severe: the kind of patient usually treated) and **treated patients
+   in the bottom left**. They're rare in their group, so each stands in for
+   many similar patients. Both methods balance age and severity (|SMD| about
+   0.1 or less) and get close to the true effect of +2: matching gives
+   +1.82, using 245 of the 354 treated patients, and IPTW gives +1.60,
+   using everyone. The largest weight is about 15.
+2. With strong confounding, the groups barely overlap. The largest weight
+   is now 57, and the effective sample size of the treated group drops to
+   122 of 355. Weighting fails to balance severity (SMD 0.26), and the IPTW
+   estimate is −0.50, far from +2. Matching does better (+1.34), but only
+   by dropping more than half of the treated patients (167 of 355 kept).
+   When overlap is poor, **no method** can estimate the effect for the
+   patients who have no comparable counterparts.
+3. **Not here.** Capping makes the weights more stable (ESS rises to 204),
+   but the capped weights no longer balance the groups (SMDs 0.30 and
+   0.38), and the estimate gets worse (−3.01). Capping trades bias for
+   precision, so always check balance after capping or trimming, and
+   report it.
+4. **No.** Age is balanced by both methods, but severity's SMD stays at
+   about 0.8. Matching gives −1.03 and IPTW −1.50, when the truth is +2.
+   Weighting, like matching, can only balance what you measured.
+:::
+
+## In practice: the WeightIt package
+
+Calculating weights by hand shows how they work. In practice, the
+**WeightIt** package does it for you, with the same interface as MatchIt,
+and cobalt checks balance directly:
+
+```{r}
+#| label: weightit
+W <- weightit(treated ~ age + female + diabetes + bmi + smoker,
+              data = cohort, method = "glm", estimand = "ATE")
+summary(W)
+```
+
+```{r}
+#| label: weightit-cox
+bal.tab(W, binary = "std", thresholds = c(m = 0.1))
+
+coxph(Surv(time, status) ~ treated, data = cohort,
+      weights = W$weights, robust = TRUE) |>
+  broom::tidy(exponentiate = TRUE, conf.int = TRUE) |>
+  select(term, estimate, conf.low, conf.high)
+```
+
+The weights are identical to the ones we calculated by hand, so the HR is
+the same. `estimand = "ATT"` gives ATT weights. WeightIt can also estimate
+the weights in other ways (`method = "cbps"`, `"gbm"`, `"ebal"` and more),
+some of which aim directly for balance. Its `trim()` function trims
+weights.
+
+## Other kinds of matching
+
+Chapter 6 used 1:1 nearest-neighbour matching without replacement, with a
+caliper. MatchIt offers several variations. Here are the ones you're most
+likely to meet.
+
+### Matching with replacement
+
+With `replace = TRUE`, each control can be matched to more than one treated
+patient. Good controls are no longer "used up", so more treated patients
+find a close match:
+
+```{r}
+#| label: match-replace
+m_rep <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                 data = cohort, method = "nearest",
+                 link = "linear.logit", caliper = 0.2,
+                 replace = TRUE)
+summary(m_rep, un = FALSE)$nn
+```
+
+Now 844 of the 849 treated patients are matched, but to only 466 different
+controls. Some controls are used several times, so the matching
+**weights** are no longer all 1. Check balance, then use the weights in the
+analysis:
+
+```{r}
+#| label: match-replace-cox
+bal.tab(m_rep, binary = "std", thresholds = c(m = 0.1))
+
+md_rep <- match.data(m_rep)
+summary(md_rep$weights[md_rep$treated == 0])
+
+coxph(Surv(time, status) ~ treated, data = md_rep,
+      weights = weights, robust = TRUE) |>
+  broom::tidy(exponentiate = TRUE, conf.int = TRUE) |>
+  select(term, estimate, conf.low, conf.high)
+```
+
+The cost is precision: the 466 controls, unevenly weighted, are worth only
+about 280 equally weighted patients (the ESS in the matching summary).
+Balance can also suffer when the same few controls are reused. Here, BMI
+ends up just over the threshold (SMD 0.12).
+
+### Exact matching on key variables
+
+`exact = ~ diabetes` only allows matches between patients with the same
+diabetes status, while still matching on the propensity score within that
+group. It's useful for one or two variables that must match exactly, for
+example sex in a sex-specific outcome, or study site:
+
+```{r}
+#| label: match-exact
+m_ex <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                data = cohort, method = "nearest",
+                link = "linear.logit", caliper = 0.2,
+                exact = ~ diabetes)
+summary(m_ex, un = FALSE)$nn
+```
+
+Here 706 treated patients are matched, a few fewer than without the exact
+condition (714).
+
+### Optimal and full matching
+
+Both need the **optmatch** package (`install.packages("optmatch")`).
+
+- **Optimal pair matching** (`method = "optimal"`). Nearest-neighbour
+  matching is *greedy*: it takes treated patients one at a time, so an early
+  match can use up a control that would have suited a later patient better.
+  Optimal matching chooses all the pairs together, to minimise the total
+  distance. Results are usually similar to nearest-neighbour matching.
+- **Full matching** (`method = "full"`). Every patient is placed in a
+  matched set containing at least one treated and one untreated patient. A
+  set might have one treated patient and five controls, or three treated
+  patients and one control. Nobody is discarded, and with weights it can
+  target the ATE or the ATT. It often gives the best balance of all the
+  matching methods.
+
+```r
+m_full <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                  data = cohort, method = "full",
+                  link = "linear.logit", estimand = "ATE")
+```
+
+The analysis afterwards is the same as for matching with replacement: use
+the `weights`, with a robust standard error clustered on `subclass`.
+
+## Choosing a method
+
+| Method | Estimand | Who is kept | Weights in the analysis? | Good when |
+|---|---|---|---|---|
+| 1:1 nearest neighbour, caliper (Chapters 6–7) | ATT (matched treated) | Matched pairs only | No (all 1) | A simple, transparent default |
+| Variable ratio (`ratio = 2`, Exercise 6.1) | ATT | Matched sets | Yes | There are many more controls than treated patients |
+| With replacement | ATT | Matched treated; reused controls | Yes | Good controls are scarce |
+| Exact on key variables | ATT | Matched pairs | No | A variable must match exactly |
+| Full matching | ATE or ATT | Everyone | Yes | You want good balance without losing anyone |
+| IPTW | ATE or ATT | Everyone | Yes | You want the ATE, or a second method |
+
+Whatever you choose, the workflow is the same: settle the design and check
+balance **before** looking at outcomes, use the weights in the outcome
+model, and use robust standard errors. It's good practice to choose one
+method in advance as the main analysis, and report another as a
+sensitivity analysis. If they broadly agree, as they do here (0.68 matched,
+0.70 weighted), you can be more confident in the result.
+
+## Quick quiz {.unnumbered}
+
+Choose an answer to each question. You'll get instant feedback and can change your answer as often as you like.
+
+```{ojs}
+//| echo: false
+import {quiz} from "./js/survtools.js"
+```
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "An untreated patient has a propensity score of 0.75. What is their ATE weight?",
+  "options": ["1.33", "4", "0.75", "3"],
+  "answer": 1,
+  "why": "Untreated patients get 1/(1 − e) = 1/0.25 = 4. Someone like them was unlikely to be untreated, so they stand in for 4 similar patients.",
+  "hints": [
+   "That's 1/e, the weight a <i>treated</i> patient with this score would get.",
+   "",
+   "That's the propensity score itself, not a weight.",
+   "That's e/(1 − e), the ATT weight for an untreated patient."
+  ]
+ },
+ {
+  "q": "Why does a weighted Cox model need a robust standard error?",
+  "options": [
+   "An ordinary standard error treats the weights as extra patients, so the CI is too narrow",
+   "Otherwise the hazard ratio is biased",
+   "Robust standard errors are only needed for matched data",
+   "It makes the model check proportional hazards"
+  ],
+  "answer": 0,
+  "why": "An ordinary standard error treats a weight of 5 as five real patients, which overstates how much information there is. The robust standard error allows for the weighting. (Recent versions of survival use it automatically with non-integer weights; <code>robust = TRUE</code> makes it explicit.)",
+  "hints": [
+   "",
+   "The HR itself is the same either way. It's the uncertainty that's wrong.",
+   "Weighted analyses need them too.",
+   "That's <code>cox.zph()</code>."
+  ]
+ },
+ {
+  "q": "A few treated patients have weights above 50. What does this suggest?",
+  "options": [
+   "Poor overlap: some treated patients had very low propensity scores",
+   "The treatment effect is large",
+   "The propensity score model is perfect",
+   "Nothing: large weights are always fine"
+  ],
+  "answer": 0,
+  "why": "A weight of 50 means a propensity score of 0.02: a treated patient who hardly anyone like them would have had treated. Check overlap, report the ESS, and consider stabilising or trimming.",
+  "hints": [
+   "",
+   "Weights describe who got treated, not the outcome.",
+   "Extreme weights usually point to a problem, not perfection.",
+   "A few patients with huge weights can dominate the estimate."
+  ]
+ },
+ {
+  "q": "Which method keeps every patient and targets the effect in the whole population?",
+  "options": [
+   "1:1 nearest-neighbour matching with a caliper",
+   "IPTW with ATE weights",
+   "Matching with replacement",
+   "Exact matching"
+  ],
+  "answer": 1,
+  "why": "IPTW with ATE weights (or full matching with estimand = \"ATE\") uses everyone and reweights both groups to look like the whole population.",
+  "hints": [
+   "Caliper matching drops unmatched treated patients, and targets the ATT.",
+   "",
+   "Matching with replacement still targets the ATT and leaves out unused controls.",
+   "Exact matching is a form of nearest-neighbour matching, so it targets the ATT."
+  ]
+ }
+])
+```
+
+## Summary
+
+::: {.callout-important icon="false"}
+## Key points
+- **IPTW** weights each patient by one over the probability of the treatment they received, creating a pseudo-population in which treatment is unrelated to the measured confounders. Nobody is discarded.
+- **ATE weights** ($1/e$, $1/(1-e)$) target the whole population. **ATT weights** (1, $e/(1-e)$) target the treated, like 1:1 matching.
+- Check the weights (range, ESS) and the balance, use the weights in KM curves and Cox models, and always use **robust standard errors**.
+- Very large weights signal poor overlap. Stabilise or trim them, and report what you did.
+- MatchIt also offers matching **with replacement**, **exact** matching, and **optimal** and **full** matching. Most of these need the matching weights in the analysis.
+- Choose a main method in advance, and use another as a sensitivity analysis.
+:::
+
+**Answering the question.** Yes. Weighting uses every patient. In the simulated cohort, IPTW gave an HR of 0.70 for the whole population (true marginal value about 0.73), and ATT weights gave 0.70 for the treated, close to the 0.68 from matching, without discarding the 135 unmatched treated patients.
+
+## Further reading
+
+All of these are free to read online unless marked otherwise. The whole
+book's reading list, grouped by topic, is in @sec-further-reading.
+
+- @chesnaye2022: **Start here.** A short, clear introduction to IPTW, with a worked example.
+- @austin2015iptw: Best practice for IPTW: checking balance, dealing with extreme weights, and estimating effects, including on survival.
+- @weightit_vignette: The WeightIt package's guide, from its author.
+- @stuart2010: A review of matching methods, including full and optimal matching.

@@ -1,0 +1,997 @@
+---
+format:
+  live-html:
+    webr:
+      packages:
+        - survival
+---
+
+# Kaplan–Meier curves and the log-rank test {#sec-km}
+
+```{r}
+#| label: setup-ch2
+#| include: false
+library(survival)
+library(ggsurvfit)
+library(dplyr)
+library(broom)
+source("R/pairwise_logrank.R")
+lung <- survival::lung |>
+  mutate(status = status - 1,
+         sex = factor(sex, 1:2, c("Male", "Female")))
+```
+
+{{< include ./_extensions/r-wasm/live/_knitr.qmd >}}
+
+::: {.callout-note icon="false"}
+## In this chapter
+**The question.** Did women with advanced lung cancer survive longer than men?
+
+**By the end of this chapter you will be able to:**
+
+- explain how the **Kaplan–Meier** estimator builds a survival curve, and how it handles censored patients;
+- fit and plot KM curves in R, and read off median survival and survival at chosen times;
+- describe the **hazard** in plain words;
+- compare groups with the **log-rank test**, and follow up three or more groups with adjusted pairwise tests.
+:::
+
+## Warm-up: remember Chapter 1? {.unnumbered}
+
+Two quick questions to bring back the key ideas from last time.
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "A patient was still alive when the study closed, after 3 years of follow-up. How is this recorded?",
+  "options": [
+   "Event at 3 years",
+   "Censored at 3 years",
+   "Excluded from the analysis",
+   "Recorded as missing"
+  ],
+  "answer": 1,
+  "why": "They were event-free for 3 years, and we don't know what happened after that: time = 3, status = 0 (censored).",
+  "hints": [
+   "No event happened, so status must be 0.",
+   "",
+   "Excluding them throws away 3 years of event-free follow-up.",
+   "Censored data aren't missing. They tell us the patient survived at least 3 years."
+  ]
+ },
+ {
+  "q": "Which assumption about censoring do the methods in this book rely on?",
+  "options": [
+   "There is no censoring",
+   "Censoring is non-informative: censored patients have the same future risk as those still followed",
+   "Censoring only happens at the end of the study",
+   "Each group has the same amount of censoring"
+  ],
+  "answer": 1,
+  "why": "Censoring can happen at any time, and groups can differ in how much there is. What matters is that censoring isn't related to a patient's risk.",
+  "hints": [
+   "Survival methods exist precisely *because* there is censoring.",
+   "",
+   "Drop-outs during the study are fine, as long as they aren't related to risk.",
+   "Groups can have different amounts of censoring."
+  ]
+ }
+])
+```
+
+## The idea
+
+The **survival function** $S(t)$ is the probability of being event-free
+beyond time $t$. Survival curves always start at $S(0) = 1$ and can only
+go down.
+
+The **Kaplan–Meier (KM) estimator** is named after Edward Kaplan and Paul
+Meier, who published it in 1958 [@kaplan1958]. Its other name, the
+*product-limit estimator*, describes how it works: the curve is the
+**product** of the chances of surviving each step. It splits follow-up
+into steps at each time an event happens. At each event time $t_j$:
+
+- $n_j$ = number **at risk** just before $t_j$. These are people who have
+  not had the event and have not yet been censored.
+- $d_j$ = number of **events** at $t_j$.
+- The chance of surviving that step, given you got that far, is
+  $1 - d_j / n_j$.
+
+Survival to time $t$ is the product of all the steps so far:
+
+$$
+\hat S(t) = \prod_{t_j \le t} \left(1 - \frac{d_j}{n_j}\right)
+$$
+
+Censored people **count in the risk set until they are censored**, and then
+leave quietly. They never count as an event. This is how KM uses the partial
+information from censored people.
+
+## Interactive app: Kaplan–Meier by hand {#sec-app-km-hand}
+
+Type survival times separated by commas, and add `+` to mark a censored
+time. Edit the data and watch the table and curve update. Try adding a
+censored time *before* the first event, or a tie (two events at the same
+time).
+
+```{ojs}
+//| echo: false
+import {kmFit, kmMedian, logrank, makeRandom, nAtRisk, quiz} from "./js/survtools.js"
+```
+
+::: {.app}
+```{ojs}
+//| echo: false
+viewof kmText = Inputs.text({label: "Times (+ = censored)", value: "2, 3+, 4, 4, 6+, 7, 9, 11+, 13, 15+", width: 420})
+```
+
+```{ojs}
+//| echo: false
+kmParsed = kmText.split(/[,\s]+/).filter(s => s.length).map(s => ({
+  time: parseFloat(s), event: s.trim().endsWith("+") ? 0 : 1
+})).filter(d => !isNaN(d.time) && d.time >= 0)
+kmHand = kmFit(kmParsed.map(d => d.time), kmParsed.map(d => d.event))
+```
+
+```{ojs}
+//| echo: false
+Inputs.table(kmHand.slice(1).map(r => ({
+  "Time t": r.time,
+  "At risk (n)": r.nrisk,
+  "Events (d)": r.nevent,
+  "Censored": r.ncens,
+  "Step: 1 − d/n": r.nevent ? `1 − ${r.nevent}/${r.nrisk} = ${(1 - r.nevent / r.nrisk).toFixed(3)}` : "1 (no event)",
+  "S(t)": r.surv.toFixed(3)
+})), {layout: "auto", rows: 20})
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  height: 300, y: {domain: [0, 1], label: "Survival probability S(t)", grid: true},
+  x: {label: "Time →"},
+  marks: [
+    Plot.line(kmHand, {x: "time", y: "surv", curve: "step-after", strokeWidth: 2.5, stroke: "#0072B2"}),
+    Plot.dot(kmHand.filter(r => r.ncens > 0), {x: "time", y: "surv", symbol: "plus", r: 6, stroke: "#0072B2", strokeWidth: 2}),
+    Plot.ruleY([0.5], {stroke: "#D55E00", strokeDasharray: "4,3", strokeOpacity: 0.6}),
+    Plot.text([`Median = ${isNaN(kmMedian(kmHand)) ? "not reached" : kmMedian(kmHand)}`],
+      {frameAnchor: "top-right", dy: 5, dx: -5, fill: "#D55E00"})
+  ]
+})
+```
+:::
+
+::: {.callout-tip}
+## Check your understanding
+- Why doesn't the curve drop at a censored time (`+`)?
+- After a censored observation, why are the drops at later events
+  *bigger*?
+- What happens to the median if the last observation is censored and
+  $S(t)$ never goes below 0.5?
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Answers
+Using the default data (`2, 3+, 4, 4, 6+, 7, 9, 11+, 13, 15+`):
+
+- **No drop at a censored time.** No event happened there. The censored
+  person just leaves the risk set, so $d = 0$ and the step factor is
+  $1 - 0/n = 1$. Look at time 3: $S(t)$ stays at 0.900.
+- **Bigger drops later.** Each censored person who leaves makes the risk
+  set smaller, so each later death is a larger *fraction* of the people
+  still at risk. The single death at time 2 removes 1/10 of the survival
+  probability (10 at risk). The single death at time 13 removes **half**
+  of it, because only 2 people are left at risk. This is also why the
+  right-hand end of a KM curve is so uncertain.
+- **Median never reached.** The median is the first time $S(t) \le 0.5$.
+  Here it is 9. If the curve never drops to 0.5, for example because the
+  last observations are censored (try `2, 3+, 4, 6+, 9+, 11+`), the median
+  is **not reached**. R prints `NA`. Don't report the last follow-up time
+  instead. Report "not reached", and give survival at fixed time points or
+  the lower confidence limit for the median if it's available.
+:::
+
+## Kaplan–Meier in R
+
+`survfit()` fits the KM estimator. `~ 1` means one curve for everyone.
+
+```{r}
+#| label: km-overall
+km_all <- survfit(Surv(time, status) ~ 1, data = lung)
+km_all
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+- **n**: patients (228). **events**: deaths (165).
+- **median**: the median survival time, 310 days. Half the patients had
+  died by then.
+- **0.95LCL, 0.95UCL**: the lower and upper limits of the 95% confidence
+  interval for the median (285 to 363 days).
+:::
+
+`summary()` gives the estimated survival at times you choose. Here we
+use 180, 365 and 730 days (6 months, 1 year, 2 years):
+
+```{r}
+#| label: km-summary
+summary(km_all, times = c(180, 365, 730))
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+One row per chosen time:
+
+- **n.risk**: patients still alive and in follow-up at that time.
+- **n.event**: deaths since the previous time shown.
+- **survival**: the estimated proportion still alive, $\hat S(t)$.
+- **lower/upper 95% CI**: its confidence interval. (`std.err` is the
+  standard error, which you rarely need.)
+:::
+
+So about 41% of patients (95% CI 34%–49%) were still alive at one year.
+
+### Plotting with `ggsurvfit`
+
+The **ggsurvfit** package makes good KM plots that work with ggplot2. Use
+`survfit2()` instead of `survfit()`. It is identical, but it remembers the
+data and variable labels for plotting.
+
+```{r}
+#| label: fig-km-overall
+#| fig-cap: "Overall Kaplan–Meier curve for the lung cancer data."
+survfit2(Surv(time, status) ~ 1, data = lung) |>
+  ggsurvfit(linewidth = 1) +
+  add_confidence_interval() +
+  add_censor_mark(size = 2, alpha = 0.6) +
+  add_quantile(y_value = 0.5, linetype = "dashed", color = "grey40") +
+  add_risktable() +
+  scale_x_continuous(breaks = seq(0, 1000, 250)) +
+  labs(x = "Days since enrolment", y = "Overall survival probability")
+```
+
+The **risk table** under the plot shows how many patients are still being
+followed. Always include it. The right-hand end of a KM curve is usually
+based on very few people, so read it with caution.
+
+## Comparing groups
+
+Put a grouping variable on the right-hand side of the formula:
+
+```{r}
+#| label: km-sex
+km_sex <- survfit2(Surv(time, status) ~ sex, data = lung)
+km_sex
+```
+
+```{r}
+#| label: fig-km-sex
+#| fig-cap: "Kaplan–Meier curves by sex."
+km_sex |>
+  ggsurvfit(linewidth = 1) +
+  add_confidence_interval() +
+  add_risktable(risktable_stats = "n.risk") +
+  add_pvalue(location = "annotation", x = 750) +
+  scale_ggsurvfit() +
+  labs(x = "Days since enrolment")
+```
+
+The women's curve stays above the men's: at every point in time, a higher
+proportion of women were still alive. Is that difference bigger than we'd
+expect by chance? Before answering that, we need one new idea.
+
+### A first look at the hazard {#sec-hazard-intro}
+
+So far we've described survival as the **proportion still alive** at
+each time. Another way to describe it is the **hazard**: *the risk of the
+event right now, for someone who has survived so far*.
+
+::: {.callout-note}
+## The hazard in plain words
+Imagine 100 patients are still alive at the start of month 6, and 5 of
+them die during month 6. The hazard in month 6 is roughly
+**5 per 100 per month**: the death rate among the people still at risk.
+
+- The **survival curve** answers: *what proportion are still alive at time t?*
+- The **hazard** answers: *among those still alive, how fast are the
+  events happening right now?*
+
+A **hazard ratio (HR)** compares the hazards of two groups. For example,
+HR = 0.6 for treatment B vs treatment A means that, at any moment, patients
+on B are dying at 60% of the rate of patients on A. HR = 1 means no
+difference.
+
+Chapter 3 covers hazards and hazard ratios properly. For now, "hazard ≈
+death rate among those still alive" is all you need.
+:::
+
+### The log-rank test {#sec-logrank}
+
+The **log-rank test** asks whether the survival curves are the same. At
+every time a death occurs, it compares the number of deaths in each group
+with the number we'd **expect** if both groups had the same hazard. Then it
+adds up the differences over all those times.
+
+```{r}
+#| label: logrank
+survdiff(Surv(time, status) ~ sex, data = lung)
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+- **N**: patients in each group.
+- **Observed**: deaths that actually happened in each group.
+- **Expected**: deaths we'd expect in each group if men and women had
+  the same hazard.
+- `(O-E)^2/E` and `(O-E)^2/V`: intermediate steps in the calculation.
+  You can ignore them.
+- **Chisq … p**: the test result. This is the line you report.
+:::
+
+Men had 112 deaths when about 91.6 were expected. Women had 53 when about
+73.4 were expected. Men died more often than expected and women less often.
+The test gives $\chi^2 = 10.3$ on 1 degree of freedom, $p = 0.001$, so there
+is strong evidence that survival differed by sex.
+
+::: {.callout-warning}
+## What the log-rank test can't do
+- It gives a **p-value only**. It doesn't say *how big* the difference is.
+  For that we need a hazard ratio (Chapter 3).
+- It works best when one group's hazard is a constant multiple of the
+  other's. If the curves **cross**, it can miss a real difference.
+- It does **not adjust for other variables**. In observational data, a
+  difference in KM curves may be due to confounding (Chapters 5–7).
+:::
+
+### Practice: fill in the blanks
+
+*This is a live exercise: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used one before.*
+
+Do patients aged 70 or over survive less long than younger patients? Replace
+each `______` with the right code, then click **Run Code**.
+
+```{webr}
+#| setup: true
+#| exercise: ex_km_age
+library(survival)
+lung <- survival::lung
+lung$status <- lung$status - 1        # recode to 0 = censored, 1 = died
+```
+
+```{webr}
+#| exercise: ex_km_age
+#| caption: "Practice: KM curves by age group"
+# TRUE for patients aged 70 or over
+lung$old <- lung$age >= ______
+
+# One curve per age group, and the median in each
+fit <- survfit(Surv(time, status) ~ ______, data = lung)
+print(fit)
+
+# Survival at 1 year (time is in days)
+summary(fit, times = ______)
+
+# Log-rank test
+survdiff(Surv(time, status) ~ ______, data = lung)
+```
+
+::: {.hint exercise="ex_km_age"}
+::: {.callout-note collapse="false"}
+## Hint 1
+The new column is called `old`, so that is the grouping variable on the
+right of each `~`.
+:::
+:::
+
+::: {.hint exercise="ex_km_age"}
+::: {.callout-note collapse="false"}
+## Hint 2
+The age cut-off is `70`. Time in `lung` is measured in days, so one year is
+`365`.
+:::
+:::
+
+::: {.solution exercise="ex_km_age"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+lung$old <- lung$age >= 70
+
+fit <- survfit(Surv(time, status) ~ old, data = lung)
+print(fit)
+summary(fit, times = 365)
+survdiff(Surv(time, status) ~ old, data = lung)
+```
+
+Median survival was 283 days for patients aged 70 or over (`old=TRUE`) and
+340 days for younger patients. At one year, about 30% of the older group and
+45% of the younger group were still alive. The difference is just
+significant: log-rank $\chi^2 = 4.0$ on 1 degree of freedom, p = 0.04.
+:::
+:::
+
+```{webr}
+#| exercise: ex_km_age
+#| check: true
+env <- .envir_result
+if (is.null(env$lung$old)) {
+  list(correct = FALSE, type = "warning",
+       message = "First create the <code>old</code> column: replace the first blank with the age cut-off.")
+} else if (!identical(env$lung$old, survival::lung$age >= 70)) {
+  list(correct = FALSE,
+       message = "Check the age cut-off: patients aged <b>70 or over</b> should be <code>TRUE</code>.")
+} else if (!exists("fit", envir = env, inherits = FALSE) ||
+           !identical(names(env$fit$strata), c("old=FALSE", "old=TRUE"))) {
+  list(correct = FALSE,
+       message = "<code>survfit()</code> should give one curve per age group: put <code>old</code> on the right of the <code>~</code>.")
+} else if (!grepl("times\\s*=\\s*365", .user_code)) {
+  list(correct = FALSE,
+       message = "One year is 365 days, so use <code>times = 365</code> in <code>summary()</code>.")
+} else if (!inherits(.result, "survdiff") ||
+           !identical(names(.result$n), c("old=FALSE", "old=TRUE"))) {
+  list(correct = FALSE,
+       message = "The last line should be the log-rank test comparing the two age groups: <code>survdiff()</code> with <code>~ old</code>.")
+} else {
+  list(correct = TRUE,
+       message = "Correct! Older patients: median 283 days. Younger: 340 days. Log-rank p = 0.04. Now answer: is the difference statistically significant?")
+}
+```
+
+## Interactive app: two-arm study simulator {#sec-app-km-sim}
+
+Here we simulate a two-arm study where we know the truth. The dashed lines
+are the **true** survival curves. The solid lines are the KM estimates from
+one simulated sample. Change the sample size and seed to see how much KM
+curves and log-rank p-values vary from sample to sample.
+
+::: {.app}
+```{ojs}
+//| echo: false
+viewof k2Scen = Inputs.radio(["Default", "Small study (20 per arm)", "Large study (150 per arm)", "No true effect (HR = 1)", "Short follow-up (6 months)", "Heavy drop-out"], {value: "Default", label: "Scenario"})
+k2P = ({"Default": {}, "Small study (20 per arm)": {"n": 20}, "Large study (150 per arm)": {"n": 150}, "No true effect (HR = 1)": {"hr": 1}, "Short follow-up (6 months)": {"fu": 6}, "Heavy drop-out": {"drop": 0.08}})[k2Scen]
+viewof k2 = Inputs.form({
+  n:      Inputs.range([10, 500], {value: k2P.n ?? 60, step: 10, label: "Patients per arm"}),
+  median: Inputs.range([3, 36], {value: k2P.median ?? 12, step: 1, label: "Control median (months)"}),
+  hr:     Inputs.range([0.3, 1.5], {value: k2P.hr ?? 0.6, step: 0.05, label: "True hazard ratio (B vs A)"}),
+  fu:     Inputs.range([6, 60], {value: k2P.fu ?? 30, step: 6, label: "Max follow-up (months)"}),
+  drop:   Inputs.range([0, 0.1], {value: k2P.drop ?? 0.01, step: 0.005, label: "Drop-out rate (per month)"}),
+  seed:   Inputs.range([1, 200], {value: k2P.seed ?? 1, step: 1, label: "Random seed (new study)"}),
+  ci:     Inputs.toggle({label: "Show 95% CIs", value: k2P.ci ?? true})
+}, {template: formGrid})
+formGrid = inputs => html`<div class="form-grid">${Object.values(inputs)}</div>`
+```
+
+```{ojs}
+//| echo: false
+k2sim = {
+  const r = makeRandom(k2.seed);
+  const lam0 = Math.LN2 / k2.median;
+  const out = [];
+  for (const [g, lam] of [["A (control)", lam0], ["B (treatment)", lam0 * k2.hr]]) {
+    for (let i = 0; i < k2.n; i++) {
+      const tE = r.exp(lam);
+      const tC = Math.min(k2.fu * (0.5 + 0.5 * r.unif()), k2.drop > 0 ? r.exp(k2.drop) : Infinity);
+      out.push({group: g, g: g.startsWith("B") ? 1 : 0, time: Math.min(tE, tC), event: tE <= tC ? 1 : 0});
+    }
+  }
+  return out;
+}
+k2fits = ["A (control)", "B (treatment)"].flatMap(g => {
+  const d = k2sim.filter(x => x.group === g);
+  return kmFit(d.map(x => x.time), d.map(x => x.event)).map(r => ({...r, group: g}));
+})
+k2true = {
+  const lam0 = Math.LN2 / k2.median, pts = [];
+  for (let t = 0; t <= k2.fu; t += k2.fu / 100) {
+    pts.push({time: t, surv: Math.exp(-lam0 * t), group: "A (control)"});
+    pts.push({time: t, surv: Math.exp(-lam0 * k2.hr * t), group: "B (treatment)"});
+  }
+  return pts;
+}
+k2lr = logrank(k2sim.map(d => d.time), k2sim.map(d => d.event), k2sim.map(d => d.g))
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  height: 340, y: {domain: [0, 1], grid: true, label: "Survival probability"},
+  x: {label: "Months →", domain: [0, k2.fu]},
+  color: {legend: true, domain: ["A (control)", "B (treatment)"], range: ["#E69F00", "#0072B2"]},
+  marks: [
+    k2.ci ? Plot.areaY(k2fits, {x: "time", y1: "lower", y2: "upper", fill: "group", fillOpacity: 0.15, curve: "step-after"}) : null,
+    Plot.line(k2true, {x: "time", y: "surv", stroke: "group", strokeDasharray: "5,4", strokeOpacity: 0.8}),
+    Plot.line(k2fits, {x: "time", y: "surv", stroke: "group", strokeWidth: 2.2, curve: "step-after"}),
+    Plot.dot(k2fits.filter(r => r.ncens > 0), {x: "time", y: "surv", stroke: "group", symbol: "plus", r: 3})
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+{
+  const tbl = [];
+  for (const g of ["A (control)", "B (treatment)"]) {
+    const d = k2sim.filter(x => x.group === g);
+    const f = k2fits.filter(r => r.group === g);
+    const isA = g.startsWith("A");
+    tbl.push({Arm: g, N: d.length, Events: d.filter(x => x.event).length,
+      "Observed (O)": isA ? k2lr.O0 : k2lr.O1, "Expected (E)": (isA ? k2lr.E0 : k2lr.E1).toFixed(1),
+      "KM median": isNaN(kmMedian(f)) ? "not reached" : kmMedian(f).toFixed(1),
+      "True median": (k2.median / (isA ? 1 : k2.hr)).toFixed(1)});
+  }
+  return Inputs.table(tbl, {layout: "auto"});
+}
+```
+
+```{ojs}
+//| echo: false
+html`<p style="font-size:1.05em">Log-rank test: χ² = <b>${k2lr.chisq.toFixed(2)}</b> on 1 df,
+p = <b style="color:${k2lr.p < 0.05 ? '#0072B2' : '#D55E00'}">${k2lr.p < 0.0001 ? "< 0.0001" : k2lr.p.toFixed(4)}</b>
+${k2lr.p < 0.05 ? "(significant at 5%)" : "(not significant at 5%)"}</p>`
+```
+:::
+
+::: {.callout-tip}
+## Things to try
+For each one, **predict first**: decide what you expect to see, then pick the scenario and check. Committing to a prediction, even a wrong one, makes the result stick.
+
+1. **Power.** **Predict:** with only 20 patients per arm and a real effect
+   (HR = 0.6), how often will the log-rank test give p < 0.05? *Then* pick
+   **Small study (20 per arm)** and step through several seeds. Compare with
+   **Large study (150 per arm)**.
+2. **No effect.** **Predict:** if the treatment does nothing, can the test
+   still give p < 0.05? *Then* pick **No true effect (HR = 1)** and step
+   through seeds.
+3. **Censoring.** **Predict:** if follow-up stops at 6 months, what happens
+   to the medians and the p-value? *Then* pick **Short follow-up (6
+   months)**.
+4. **The tail.** **Predict:** with many drop-outs, which part of the curves
+   will be most uncertain? *Then* pick **Heavy drop-out**.
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Answers: what you should see
+1. **Power.** With 20 per arm, the true HR of 0.6 gives p < 0.05 in only
+   about **1 seed in 5**. The chance that a study detects a real effect
+   (p < 0.05) is called its **power**. Across 200 simulated studies, the
+   power here was about 20%. A real effect is often missed in a small study. With 150 per arm,
+   power is about **90%**. Notice also how much the 20-per-arm KM curves
+   wander around the dashed true curves.
+2. **No effect.** With HR = 1, about **5%** of seeds give p < 0.05. That's
+   exactly what a 5% significance level means: these are false positives.
+   If you click through 20 seeds you'll probably find one or two.
+3. **Short follow-up.** With 6 months of follow-up, both medians are "not
+   reached" (the control median is 12 months), there are only a handful of
+   events, and power falls from about 55% to about 22% (at 60 per arm). The
+   number of patients hasn't changed, only the number of **events**.
+4. **High drop-out.** The risk table thins out quickly, so the confidence
+   bands balloon at the right of the plot. On average the curves still
+   follow the dashed truth, because random drop-out is *non-informative*.
+   KM handles it correctly, but you get less precision.
+:::
+
+## Comparing more than two groups {#sec-pairwise}
+
+With three or more groups, `survdiff()` gives an **omnibus** test. Its null
+hypothesis is that *all* the survival curves are the same, so a small
+p-value tells you that *at least one* group differs, but not which one.
+
+The `lung` data record each patient's **ECOG performance status**, a score
+of how well they manage daily activities (0 = fully active, higher = more
+impaired). Only one patient scored 3, so we combine scores of 2 and 3 into
+"2+":
+
+```{r}
+#| label: ecog-groups
+lung <- lung |>
+  mutate(ecog = factor(pmin(ph.ecog, 2), levels = 0:2,
+                       labels = c("0 (active)", "1", "2+")))
+
+survfit2(Surv(time, status) ~ ecog, data = lung)     # medians by group
+```
+
+```{r}
+#| label: fig-km-ecog
+#| fig-cap: "Kaplan–Meier curves by ECOG performance status."
+survfit2(Surv(time, status) ~ ecog, data = lung) |>
+  ggsurvfit(linewidth = 1) +
+  add_risktable(risktable_stats = "n.risk") +
+  scale_ggsurvfit() +
+  labs(x = "Days since enrolment")
+```
+
+Median survival falls from 394 days (ECOG 0) to 306 (ECOG 1) and 183
+(ECOG 2+). (One patient has no ECOG score, so they are left out.) The
+omnibus log-rank test:
+
+```{r}
+#| label: logrank-omnibus
+survdiff(Surv(time, status) ~ ecog, data = lung)
+```
+
+The omnibus test is clear ($\chi^2 = 19.0$ on 2 degrees of freedom,
+$p < 0.001$). To find out *which* groups differ, compare each pair of
+groups. With three groups there are three pairs. Running several tests
+raises the chance of at least one false positive above 5%, so the p-values
+are **adjusted** for multiple testing. The **Holm** method is a good
+default. `pairwise_survdiff()` from the **survminer** package does all of
+this:
+
+```{r}
+#| label: survminer-pairwise
+library(survminer)
+pairwise_survdiff(Surv(time, status) ~ ecog, data = lung,
+                  p.adjust.method = "holm")
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+Each number is the Holm-adjusted p-value for one pair of groups. Find a
+row and a column, e.g. *2+* (row) vs *0 (active)* (column), adjusted
+p = 0.00009.
+
+**Always set `p.adjust.method`.** If you leave it out,
+`pairwise_survdiff()` uses a less strict adjustment (Benjamini–Hochberg),
+and you'll get smaller p-values than these.
+:::
+
+Patients with ECOG 2+ had worse survival than both ECOG 0 (adjusted
+p < 0.001) and ECOG 1 (adjusted p = 0.005). The difference between ECOG 0
+and 1 is not significant after adjustment (p = 0.06).
+
+To report *how big* the differences between groups are (hazard ratios), or
+to test for a steady trend across ordered groups like these, you need a Cox
+model. See @sec-cox-groups in the next chapter.
+
+:::: {.optional}
+::: {.callout-note collapse="true" icon="false"}
+## Going further (optional): what `pairwise_survdiff()` does, and Holm vs BH
+For each pair of groups, `pairwise_survdiff()` keeps only the patients in
+those two groups and runs an ordinary two-group `survdiff()`. Then it adjusts
+the p-values. The short function below does the same thing step by step.
+It's in [`pairwise_logrank.R`](R/pairwise_logrank.R){download="pairwise_logrank.R"}
+if you want it.
+
+```{r}
+#| label: pairwise-fn
+#| file: R/pairwise_logrank.R
+```
+
+```{r}
+#| label: pairwise-helper
+pairwise_logrank(Surv(time, status) ~ ecog, data = lung)
+```
+
+The `p_adj` column matches `pairwise_survdiff()`.
+
+- **Holm** (and Bonferroni) control the *family-wise error rate*: the
+  chance of making *any* false-positive claim. Holm is always at least as
+  powerful as Bonferroni.
+- **Benjamini–Hochberg (BH)** controls the *false discovery rate*: the
+  expected proportion of false positives among the comparisons you call
+  significant. It's less strict, so its adjusted p-values are smaller.
+:::
+::::
+
+**Good practice.** Plan your comparisons before you see the data: you often
+don't need every pair. ("Each dose vs placebo" is 3 comparisons for 4 groups,
+not 6.) Say which adjustment you used, and report survival estimates such as
+medians for each group, not just p-values. A methods sentence might read:
+*"Survival was compared between ECOG groups using the log-rank test, followed
+by pairwise log-rank tests with Holm's correction, using the survival
+[@survival-package] and survminer [@survminer] packages in R."* The
+references come from `citation("survival")` and `citation("survminer")`.
+
+## Reporting Kaplan–Meier results {#sec-km-reporting}
+
+A good KM summary normally includes:
+
+- the plot, **with a risk table** and censoring marks;
+- the number of events and number at risk in each group;
+- median survival with a 95% CI (or "not reached");
+- survival at clinically meaningful times (e.g. 1-year survival) with CIs;
+- the log-rank p-value, *and* an effect size such as a hazard ratio from a
+  Cox model (Chapter 3).
+
+### Writing it up
+
+A sentence template you can adapt:
+
+> Median survival was **[X]** days (95% CI **[a]** to **[b]**) in **[group 1]**
+> and **[Y]** days (95% CI **[c]** to **[d]**) in **[group 2]**. At
+> **[time]**, **[p1]**% (95% CI …) of **[group 1]** and **[p2]**% (95% CI …)
+> of **[group 2]** were still alive. Survival differed between the groups
+> (log-rank test, $\chi^2$ = **[value]**, **[df]** df, p = **[value]**).
+
+Filled in for the `lung` data:
+
+> Median survival was 426 days (95% CI 348 to 550) in women and 270 days
+> (95% CI 212 to 310) in men. At one year, 53% (95% CI 42% to 66%) of women
+> and 34% (95% CI 26% to 43%) of men were still alive. Survival differed
+> between the sexes (log-rank test, $\chi^2$ = 10.3, 1 df, p = 0.001).
+
+The **gtsummary** package's `tbl_survfit()` can produce these numbers as a
+table.
+
+## Quick quiz {.unnumbered}
+
+Choose an answer to each question. You'll get instant feedback and can change your answer as often as you like.
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "Survival times are <code>5, 8+, 10, 12</code>. What is the Kaplan–Meier estimate of S(10)?",
+  "options": [
+   "0.500",
+   "0.375",
+   "0.250",
+   "0.667"
+  ],
+  "answer": 1,
+  "why": "At t = 5: 4 at risk, 1 death, so S = 3/4 = 0.75. The patient censored at 8 leaves. At t = 10: 2 at risk, 1 death, so S = 0.75 × 1/2 = 0.375.",
+  "hints": [
+   "That's what you'd get by treating 8+ as if it weren't there at all (2 of 4 died by t = 10). KM keeps the censored patient in the risk set until time 8.",
+   "",
+   "That would mean 3 of 4 had died, but the patient censored at 8 didn't die.",
+   "Check the risk set at t = 10: only 2 patients are left, not 3."
+  ]
+ },
+ {
+  "q": "R reports the median survival in one group as <code>NA</code>. What does that mean?",
+  "options": [
+   "The data contain missing values",
+   "Survival never fell to 50% during follow-up",
+   "The median is zero",
+   "The group is too small to analyse"
+  ],
+  "answer": 1,
+  "why": "The median is the first time S(t) ≤ 0.5. If the curve never gets that low, the median is 'not reached'. Report it that way.",
+  "hints": [
+   "Missing values are dropped before fitting. They don't cause an NA median.",
+   "",
+   "A median of 0 would mean half the group had the event immediately.",
+   "Even small groups get a median if the curve passes 0.5."
+  ]
+ },
+ {
+  "q": "A log-rank test gives p = 0.001. What can you conclude?",
+  "options": [
+   "The hazard ratio is 0.001",
+   "There's strong evidence that the survival curves differ, but nothing about how large the difference is",
+   "There's a 99.9% chance the treatment works",
+   "The difference is clinically important"
+  ],
+  "answer": 1,
+  "why": "The log-rank test only gives a p-value. To describe the size of the difference, report a hazard ratio, median survival or survival at fixed times.",
+  "hints": [
+   "A p-value is not an effect size.",
+   "",
+   "A p-value isn't the probability that a hypothesis is true.",
+   "Statistical significance says nothing about clinical importance."
+  ]
+ },
+ {
+  "q": "Two KM curves cross at about 1 year. What's the main concern for the log-rank test?",
+  "options": [
+   "None, because the log-rank test makes no assumptions",
+   "It may have low power, because early and late differences cancel out",
+   "It can't be computed when curves cross",
+   "It will always give p < 0.05"
+  ],
+  "answer": 1,
+  "why": "The log-rank test is most powerful when hazards are proportional. When curves cross, the differences before and after the crossing partly cancel, so a real difference can be missed.",
+  "hints": [
+   "It is non-parametric, but it is most powerful under proportional hazards.",
+   "",
+   "It can always be computed. It just may not be informative.",
+   "If anything, crossing curves make a significant result *less* likely."
+  ]
+ },
+ {
+  "q": "A log-rank test comparing 4 groups gives p = 0.002. What should you do next?",
+  "options": [
+   "Conclude that all four groups differ from each other",
+   "Follow up with pairwise comparisons (adjusting the p-values, e.g. Holm), or pre-planned comparisons, and report HRs with CIs",
+   "Run all six pairwise tests at the 5% level without adjustment",
+   "Nothing more: the omnibus p-value is enough to report"
+  ],
+  "answer": 1,
+  "why": "The omnibus test says at least one curve differs, not which. Adjusted pairwise tests, or a few pre-planned comparisons, answer that question, and HRs show how big the differences are.",
+  "hints": [
+   "The omnibus test only says that *at least one* group differs.",
+   "",
+   "Six unadjusted tests push the chance of at least one false positive to around 26%.",
+   "Readers will want to know which groups differ, and by how much."
+  ]
+ }
+])
+```
+
+## Exercise
+
+### Exercise 2.1
+
+The `veteran` dataset, also in the survival package, comes from a lung cancer
+trial. `celltype` records the type of tumour: *squamous*, *smallcell*,
+*adeno* or *large*. Its `status` is already coded 0/1. The exercise has two
+parts, each checked separately. The packages it needs load the first time
+you click **Run Code**, so the first run takes a little longer.
+
+#### Part 1: KM curves and medians {.unnumbered}
+
+Draw KM curves by `celltype`, with a risk table. Then show the median
+survival in each group (make that the last line).
+
+```{webr}
+#| setup: true
+#| exercise: ex_veteran_km
+for (pkg in c("ggsurvfit", "survminer")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, quiet = TRUE)
+}
+library(survival)
+library(ggsurvfit)
+library(survminer)
+```
+
+```{webr}
+#| exercise: ex_veteran_km
+#| caption: "Exercise 2.1, part 1: KM curves by cell type"
+#| fig-height: 5
+# 1. KM curves by celltype, with a risk table
+
+
+# 2. Median survival in each group (last line)
+```
+
+::: {.hint exercise="ex_veteran_km"}
+::: {.callout-note collapse="false"}
+## Hint 1
+These are the same functions used for ECOG in @sec-pairwise: `survfit2()` with `~ celltype` and `data = veteran`, then `ggsurvfit()` and `add_risktable()`.
+:::
+:::
+
+::: {.hint exercise="ex_veteran_km"}
+::: {.callout-note collapse="false"}
+## Hint 2
+Save the fit, e.g. `fit <- survfit2(...)`. Printing `fit` shows the medians.
+:::
+:::
+
+::: {.solution exercise="ex_veteran_km"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+fit <- survfit2(Surv(time, status) ~ celltype, data = veteran)
+fit |>
+  ggsurvfit() +
+  add_risktable(risktable_stats = "n.risk") +
+  scale_ggsurvfit() +
+  labs(x = "Days")
+fit
+```
+
+Median survival was 118 days (squamous), 51 (small cell), 51 (adeno) and
+156 (large). Small cell and adeno tumours have much shorter survival.
+:::
+:::
+
+```{webr}
+#| exercise: ex_veteran_km
+#| check: true
+r <- .result
+if (!inherits(r, "survfit") || is.null(r$strata)) {
+  list(correct = FALSE, message = "Make the last line the fitted KM object, e.g. <code>fit</code>, where <code>fit &lt;- survfit2(Surv(time, status) ~ celltype, data = veteran)</code>.")
+} else if (length(r$strata) != 4 || !all(grepl("celltype", names(r$strata)))) {
+  list(correct = FALSE, message = "Group the curves by <code>celltype</code>: there should be four of them.")
+} else {
+  list(correct = TRUE, message = "Correct! Medians: 118 days (squamous), 51 (small cell), 51 (adeno) and 156 (large).")
+}
+```
+
+#### Part 2: log-rank and pairwise tests {.unnumbered}
+
+Carry out a log-rank test across the four cell types. How many degrees of
+freedom does it have, and what is its null hypothesis? Then follow it up
+with Holm-adjusted pairwise comparisons (make that the last line). Which
+cell types differ?
+
+```{webr}
+#| setup: true
+#| exercise: ex_veteran
+for (pkg in c("ggsurvfit", "survminer")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, quiet = TRUE)
+}
+library(survival)
+library(ggsurvfit)
+library(survminer)
+```
+
+```{webr}
+#| exercise: ex_veteran
+#| caption: "Exercise 2.1, part 2: comparing cell types"
+# 1. Log-rank test
+
+
+# 2. Holm-adjusted pairwise comparisons (last line)
+```
+
+::: {.hint exercise="ex_veteran"}
+::: {.callout-note collapse="false"}
+## Hint 1
+These are the same functions used for ECOG in @sec-pairwise: `survdiff()`, then `pairwise_survdiff()`. Use `data = veteran` and `~ celltype`.
+:::
+:::
+
+::: {.hint exercise="ex_veteran"}
+::: {.callout-note collapse="false"}
+## Hint 2
+```r
+pairwise_survdiff(Surv(time, status) ~ celltype, data = veteran,
+                  p.adjust.method = ______)
+```
+:::
+:::
+
+::: {.solution exercise="ex_veteran"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+survdiff(Surv(time, status) ~ celltype, data = veteran)
+pairwise_survdiff(Surv(time, status) ~ celltype, data = veteran,
+                  p.adjust.method = "holm")
+```
+
+The omnibus test has 3 degrees of freedom (4 groups − 1). Its null
+hypothesis is that all four curves are identical, and it is clearly rejected
+($\chi^2 = 25.4$, $p < 0.001$). The pairwise tests show two clusters:
+squamous and large cell have similar survival (adjusted p = 0.73), as do
+small cell and adeno (adjusted p = 0.76). Every comparison *between* the
+clusters is significant.
+:::
+:::
+
+```{webr}
+#| exercise: ex_veteran
+#| check: true
+code_lines <- strsplit(.user_code, "\n")[[1]]
+# an omnibus survdiff() call on celltype (not pairwise_survdiff)
+has_omnibus <- any(grepl("(^|[^_A-Za-z.])survdiff\\s*\\(", code_lines) &
+                   grepl("celltype", code_lines))
+if (!has_omnibus) {
+  list(correct = FALSE, type = "warning",
+       message = "Include the omnibus log-rank test: <code>survdiff(Surv(time, status) ~ celltype, data = veteran)</code>.")
+} else if (!inherits(.result, "pairwise.htest")) {
+  list(correct = FALSE,
+       message = "Make the <b>last line</b> the pairwise comparisons, using <code>pairwise_survdiff()</code>.")
+} else if (!identical(.result$p.adjust.method, "holm")) {
+  list(correct = FALSE,
+       message = paste0("Nearly there. Your pairwise tests used the <code>", .result$p.adjust.method,
+                        "</code> adjustment. Set <code>p.adjust.method = \"holm\"</code>."))
+} else {
+  list(correct = TRUE,
+       message = "Correct! Squamous and large cell are similar (adjusted p = 0.73), as are small cell and adeno (0.76). Every comparison between these two clusters is significant.")
+}
+```
+
+## Summary
+
+::: {.callout-important icon="false"}
+## Key points
+- The **KM estimator** multiplies together the chances of surviving each event time: $1 - d/n$. A censored patient leaves the risk set without causing a drop.
+- Report KM curves **with a risk table**, plus median survival (or 'not reached') and survival at chosen times, each with a 95% CI.
+- The **hazard** is the event rate among people still at risk. A **hazard ratio** compares two groups' hazards.
+- The **log-rank test** checks whether survival curves differ. It gives only a p-value, works best when the hazard ratio is constant, and doesn't adjust for other variables.
+- With three or more groups, follow a significant omnibus test with **pairwise tests adjusted for multiple testing** (e.g. Holm). Always set `p.adjust.method`.
+:::
+
+**Answering the question.** Yes. Median survival was 426 days for women and 270 days for men. One year after enrolment, about 53% of women and 34% of men were still alive. The log-rank test gave p = 0.001. How *much* lower women's risk was, and whether that holds after accounting for age and fitness, is the next chapter's question.
+
+## Further reading
+
+All of these are free to read online unless marked otherwise. The whole
+book's reading list, grouped by topic, is in @sec-further-reading.
+
+- @bland1998km: A one-page explanation of the Kaplan–Meier method, with a worked example.
+- @bland2004logrank: A one-page explanation of how the log-rank test works, from the same series.
+- @clark2003: The Kaplan–Meier and log-rank sections of this paper cover the same ground in more detail, including how to present results.

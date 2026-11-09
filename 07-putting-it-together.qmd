@@ -1,0 +1,975 @@
+---
+format:
+  live-html:
+    webr:
+      packages:
+        - survival
+---
+
+# Putting it together: a matched survival analysis {#sec-together}
+
+```{r}
+#| label: setup-ch7
+#| include: false
+library(survival)
+library(ggsurvfit)
+library(MatchIt)
+library(cobalt)
+library(broom)
+library(dplyr)
+library(ggplot2)
+source("R/simulate_cohort.R")
+```
+
+{{< include ./_extensions/r-wasm/live/_knitr.qmd >}}
+
+::: {.callout-note icon="false"}
+## In this chapter
+**The question.** Once treated and untreated patients have been matched, does the treatment reduce the hazard of death, and by how much?
+
+**By the end of this chapter you will be able to:**
+
+- carry out a complete propensity-score-matched survival analysis: design, KM curves, and a Cox model with robust standard errors;
+- compare naive, adjusted and matched estimates with the known true answer;
+- report both relative effects (HRs) and absolute effects (survival at a fixed time);
+- write up a matched analysis using a reporting checklist.
+:::
+
+## Warm-up: remember Chapters 5 and 6? {.unnumbered}
+
+Two quick questions to bring back the key ideas from last time.
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "What is a propensity score?",
+  "options": [
+   "The probability of being treated, given the measured covariates",
+   "The probability of dying during follow-up",
+   "A measure of how imbalanced two groups are",
+   "The predicted survival time"
+  ],
+  "answer": 0,
+  "why": "It combines all the measured confounders into one number, each patient's chance of being treated. Matching on it balances those confounders.",
+  "hints": [
+   "",
+   "The propensity score is about treatment, not the outcome. Outcomes play no part in it.",
+   "That's the SMD.",
+   "Survival times play no part in the propensity score."
+  ]
+ },
+ {
+  "q": "After matching, which result tells you the matching worked?",
+  "options": [
+   "Every covariate has |SMD| below 0.1",
+   "Treated and untreated patients have the same survival",
+   "Every covariate has a p-value above 0.05",
+   "Every treated patient found a match"
+  ],
+  "answer": 0,
+  "why": "Balance is judged by SMDs, which don't depend on sample size. Outcomes shouldn't be looked at until the design is settled.",
+  "hints": [
+   "",
+   "Outcomes play no part in judging the matching. That's the point of settling the design first.",
+   "p-values depend on sample size, so they're a poor guide to balance.",
+   "Keeping everyone can mean accepting poor matches. Balance is what matters."
+  ]
+ }
+])
+```
+
+This chapter runs a complete analysis of the simulated cohort (@sec-cohort),
+from raw data to a reported treatment effect. You'll need
+`simulate_cohort()` loaded, as in Chapter 5
+(`source("simulate_cohort.R")`). The question is:
+
+> **Among treated patients, does treatment reduce the hazard of death?**
+
+The true answer is built into the data: a conditional HR of 0.70. As you'll
+see in Step 4, the matched analysis estimates a slightly different
+quantity, whose true value is about 0.73.
+
+## Step 1: design (no outcomes yet)
+
+```{r}
+#| label: design
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+
+m_out <- matchit(
+  treated ~ age + female + diabetes + bmi + smoker,
+  data = cohort, method = "nearest", distance = "glm",
+  link = "linear.logit", caliper = 0.2
+)
+
+# Balance check: every |SMD| should be < 0.1
+bal.tab(m_out, binary = "std", thresholds = c(m = 0.1), un = TRUE)
+
+matched <- match.data(m_out)
+```
+
+This is the same balance table as in Chapter 6:
+`Diff.Un` is the SMD **before** matching and `Diff.Adj` is the SMD **after**
+matching. Every `Diff.Adj` is below 0.1, so balance is good and the design
+is settled. Only *now* do we look at survival.
+
+## Step 2: Kaplan–Meier curves before and after matching
+
+```{r}
+#| label: fig-km-before-after
+#| fig-cap: "Kaplan–Meier curves by treatment in the full (confounded) cohort and in the propensity-score-matched cohort."
+#| fig-height: 7
+#| fig-width: 7.5
+#| code-fold: true
+#| code-summary: "Show the plotting code"
+p_before <- survfit2(Surv(time, status) ~ treated, data = cohort) |>
+  ggsurvfit(linewidth = 1) +
+  add_confidence_interval() +
+  add_risktable(risktable_stats = "n.risk") +
+  scale_ggsurvfit(x_scales = list(breaks = 0:8)) +
+  labs(title = "Before matching (confounded)", x = "Years")
+
+p_after <- survfit2(Surv(time, status) ~ treated, data = matched) |>
+  ggsurvfit(linewidth = 1) +
+  add_confidence_interval() +
+  add_risktable(risktable_stats = "n.risk") +
+  scale_ggsurvfit(x_scales = list(breaks = 0:8)) +
+  labs(title = "After matching", x = "Years")
+
+patchwork::wrap_plots(ggsurvfit_build(p_before), ggsurvfit_build(p_after), ncol = 1)
+```
+
+Before matching, the treated group seems to do slightly *worse*, because
+they were older and sicker. After matching, the comparison is like for like
+and the benefit appears.
+
+:::: {.optional}
+::: {.callout-note collapse="true" icon="false"}
+## Going further (optional): which log-rank test for matched data?
+A standard log-rank test on matched data ignores the pairing, and so it is
+slightly conservative. The Cox model with robust standard errors below is
+the better test. If you want a pair-respecting log-rank-type test, use
+`coxph(... + strata(subclass))`: its score test is a stratified log-rank
+test.
+:::
+::::
+
+## Step 3: estimate the hazard ratio
+
+In the matched sample we fit a Cox model with **treatment only**. Two
+details matter:
+
+- `weights = weights`: these are all 1 here, but they are needed for
+  matching with replacement or with variable ratios. Including them always
+  is a good habit.
+- `robust = TRUE, cluster = subclass`: a **cluster-robust (sandwich)
+  standard error**. This allows for the fact that matched pairs are
+  similar [@austin2013]. It's called a *sandwich* because of the shape of
+  its formula: a filling (how much the data actually vary) between two
+  identical slices of "bread" (from the usual, model-based formula).
+
+```{r}
+#| label: matched-cox
+cox_matched <- coxph(Surv(time, status) ~ treated,
+                     data = matched, weights = weights,
+                     robust = TRUE, cluster = subclass)
+summary(cox_matched)
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+This is read the same way as in Chapter 3. Look at `exp(coef)` (the HR,
+**0.68**) and its 95% CI (**0.57 to 0.81**). The new column is
+`robust se`, the cluster-robust standard error. R uses it automatically for
+the CI and p-value.
+:::
+
+Check the proportional hazards assumption for this model too:
+
+```{r}
+#| label: matched-zph
+cox.zph(cox_matched)
+```
+
+p = 0.38, so there's no evidence that the treatment HR changes over
+follow-up.
+
+### Practice: fill in the blanks
+
+*This is a live exercise: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used one before.*
+
+The matched data from this chapter, `matched`, are already loaded. Replace each `______`, then click **Run Code**.
+
+```{webr}
+#| setup: true
+#| exercise: ex_matched_cox
+for (pkg in c("MatchIt")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, quiet = TRUE)
+}
+library(MatchIt)
+simulate_cohort <- function(n = 2000, hr_treat = 0.70, seed = 2026) {
+  set.seed(seed)
+  age      <- round(pmin(pmax(rnorm(n, 65, 10), 35), 95))
+  female   <- rbinom(n, 1, 0.45)
+  diabetes <- rbinom(n, 1, plogis(-1.4 + 0.04 * (age - 65)))
+  bmi      <- round(rnorm(n, 28, 4.5), 1)
+  smoker   <- rbinom(n, 1, 0.25)
+  lp_treat <- -0.6 + 0.06 * (age - 65) + 1.0 * diabetes + 0.08 * (bmi - 28) -
+    0.3 * female + 0.4 * smoker
+  treated <- rbinom(n, 1, plogis(lp_treat))
+  lp_death <- log(hr_treat) * treated + 0.06 * (age - 65) + 0.6 * diabetes +
+    0.03 * (bmi - 28) - 0.25 * female + 0.55 * smoker
+  shape  <- 1.2
+  lambda <- 0.05                       # baseline hazard scale (per year)
+  t_event <- (-log(runif(n)) / (lambda * exp(lp_death)))^(1 / shape)
+  t_admin   <- runif(n, 3, 8)          # study ends 3-8 years after entry
+  t_dropout <- rexp(n, rate = 0.04)
+  t_cens    <- pmin(t_admin, t_dropout)
+  time   <- pmin(t_event, t_cens)
+  status <- as.integer(t_event <= t_cens)
+  data.frame(
+    id       = seq_len(n),
+    age, female, diabetes, bmi, smoker,
+    treated,
+    time     = round(time, 3),
+    status
+  )
+}
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+library(survival)
+m_out <- matchit(treated ~ age + female + diabetes + bmi + smoker, data = cohort,
+                 method = "nearest", link = "linear.logit", caliper = 0.2)
+matched <- match.data(m_out)
+```
+
+```{webr}
+#| exercise: ex_matched_cox
+#| caption: "Practice: the matched analysis"
+# Cox model in the matched data, with robust SEs for matched pairs
+cox_m <- coxph(Surv(time, status) ~ ______, data = matched,
+               weights = weights,
+               robust = ______, cluster = ______)
+summary(cox_m)$conf.int                     # HR and 95% CI
+
+# Survival at 3 years in each group
+km_m <- survfit(Surv(time, status) ~ treated, data = matched)
+summary(km_m, times = ______)
+```
+
+::: {.hint exercise="ex_matched_cox"}
+::: {.callout-note collapse="false"}
+## Hint 1
+The model contains only the treatment variable, `treated`. A robust SE needs `robust = TRUE`.
+:::
+:::
+
+::: {.hint exercise="ex_matched_cox"}
+::: {.callout-note collapse="false"}
+## Hint 2
+The matched pairs are identified by the `subclass` column. Time is in years, so 3 years is `3`.
+:::
+:::
+
+::: {.solution exercise="ex_matched_cox"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+cox_m <- coxph(Surv(time, status) ~ treated, data = matched,
+               weights = weights,
+               robust = TRUE, cluster = subclass)
+summary(cox_m)$conf.int
+
+km_m <- survfit(Surv(time, status) ~ treated, data = matched)
+summary(km_m, times = 3)
+```
+
+Only `treated` goes in the model: matching has already balanced the
+confounders, so the model just compares the matched groups. (Adding the
+covariates as well is the "doubly robust" option in Exercise 7.1.)
+`cluster = subclass` tells R which patients form each matched pair. The HR is
+0.68 (95% CI 0.57 to 0.81). 3-year survival is about 84% (95% CI 82% to 87%)
+with treatment and 75% (95% CI 72% to 79%) without.
+:::
+:::
+
+```{webr}
+#| exercise: ex_matched_cox
+#| check: true
+env <- .envir_result
+cx <- env$cox_m
+if (!inherits(cx, "coxph") || !identical(attr(terms(cx), "term.labels"), "treated")) {
+  list(correct = FALSE, message = "The matched Cox model should contain just <code>treated</code>: matching has already dealt with the confounders.")
+} else if (is.null(cx$naive.var)) {
+  list(correct = FALSE, message = "Use <code>robust = TRUE, cluster = subclass</code>, so the standard errors allow for the matched pairs.")
+} else if (!grepl("cluster\\s*=\\s*subclass", .user_code)) {
+  list(correct = FALSE, message = "The pairs are identified by the <code>subclass</code> column: <code>cluster = subclass</code>.")
+} else if (!inherits(.result, "summary.survfit") || !all(.result$time == 3)) {
+  list(correct = FALSE, message = "Time is in years, so 3-year survival needs <code>times = 3</code>.")
+} else {
+  list(correct = TRUE, message = "Correct! HR 0.68 (95% CI 0.57 to 0.81). 3-year survival is about 84% with treatment and 75% without.")
+}
+```
+
+## Step 4: compare the approaches
+
+How does the matched estimate compare with other ways of analysing the
+same data? We fit four Cox models:
+
+- **Naive**: treatment only, in the full cohort. No adjustment at all.
+- **Covariate-adjusted**: treatment plus all five confounders, in the full
+  cohort (the Chapter 3 approach).
+- **PS-matched**: treatment only, in the matched cohort (Step 3).
+- **PS-matched + covariates**: matching *and* adjustment together. This is
+  often called **doubly robust**, because it gives you two chances to get
+  it right: if *either* the matching *or* the outcome model deals with the
+  confounding well, the estimate should be close to the truth.
+
+```{r}
+#| label: compare
+#| code-fold: true
+#| code-summary: "Show the code that fits the four models and builds the table"
+fits <- list(
+  "Naive (unadjusted)" =
+    coxph(Surv(time, status) ~ treated, data = cohort),
+  "Covariate-adjusted Cox" =
+    coxph(Surv(time, status) ~ treated + age + female + diabetes + bmi + smoker,
+          data = cohort),
+  "PS-matched Cox" = cox_matched,
+  "PS-matched Cox + covariates" =
+    coxph(Surv(time, status) ~ treated + age + female + diabetes + bmi + smoker,
+          data = matched, weights = weights, robust = TRUE, cluster = subclass)
+)
+
+results <- bind_rows(lapply(fits, \(f)
+  tidy(f, exponentiate = TRUE, conf.int = TRUE) |> filter(term == "treated")),
+  .id = "method") |>
+  select(method, HR = estimate, lower = conf.low, upper = conf.high, p.value) |>
+  mutate(n = sapply(fits, \(f) f$n), events = sapply(fits, \(f) f$nevent))
+
+results |> mutate(across(HR:p.value, \(x) signif(x, 3)))
+```
+
+Each row gives the HR for treatment from one method, with its CI, p-value,
+and the number of patients and deaths used.
+
+```{r}
+#| label: fig-compare
+#| fig-cap: "Estimated treatment hazard ratios by method. The dashed line marks the true conditional HR (0.70), and the dotted line the true marginal HR in the treated (0.73)."
+#| fig-height: 3
+#| code-fold: true
+#| code-summary: "Show the plotting code"
+results |>
+  mutate(method = factor(method, levels = rev(method))) |>
+  ggplot(aes(HR, method)) +
+  geom_vline(xintercept = 1, colour = "grey60") +
+  geom_vline(xintercept = 0.70, linetype = "dashed", colour = "#D55E00") +
+  geom_vline(xintercept = 0.73, linetype = "dotted", colour = "#CC79A7", linewidth = 0.8) +
+  geom_errorbar(aes(xmin = lower, xmax = upper), width = 0.15, orientation = "y") +
+  geom_point(size = 3, colour = "#0072B2") +
+  annotate("text", x = 0.70, y = 4.45, label = "conditional", colour = "#D55E00", hjust = 1.05) +
+  annotate("text", x = 0.73, y = 4.45, label = "marginal", colour = "#CC79A7", hjust = -0.05) +
+  scale_x_log10(breaks = c(0.5, 0.6, 0.7, 0.8, 1, 1.2)) +
+  labs(x = "Hazard ratio for treatment (log scale)", y = NULL) +
+  theme_minimal(base_size = 13)
+```
+
+The naive analysis gets the *direction* wrong. Both covariate adjustment
+and PS matching come close to the truth. Notice, though, that there are
+**two** "truths" on the plot, because the methods answer slightly
+different questions:
+
+- The covariate-adjusted Cox model estimates a **conditional** HR: the
+  effect of treatment for patients with the *same* age, sex, diabetes, BMI
+  and smoking status. Its true value is 0.70, the number we built into the
+  data.
+- The PS-matched Cox model, with only `treated`, estimates a **marginal**
+  HR: the effect of treatment *on average*, across the kind of patients who
+  were treated. Its true value here is about 0.73.
+
+Hazard ratios have an odd property: even with no confounding at all, the
+average effect over a mixed group of patients is a little closer to 1 than
+the effect for any particular kind of patient. (This is called
+*non-collapsibility*.) Neither number is wrong. They answer different
+questions, so say which one you estimated [@austin2013]. The matched
+estimate (0.68) is well within sampling error of its truth (0.73).
+
+Notice that the table shows only the HR for **treatment**. The
+covariate-adjusted models also give HRs for age, diabetes, BMI and so on,
+and it's tempting to report and interpret those too. Don't. Those
+variables are in the model to remove confounding of the *treatment*
+effect, and their own HRs don't mean what they seem to. For example, in
+this cohort older patients are more likely to have diabetes, which is one
+of the ways age affects survival. The HR for age is adjusted for diabetes,
+so it leaves that pathway out: it isn't "the effect of age". Interpreting every HR in the
+model as an effect is known as the **Table 2 fallacy** [@westreich2013].
+The name comes from the usual layout of a paper: Table 1 describes the
+patients, and Table 2 reports the model, where every coefficient sits
+side by side as if they all meant the same thing. If you want the effect
+of another variable, it needs its own analysis, with its own confounders.
+
+:::: {.optional}
+::: {.callout-note collapse="true" icon="false"}
+## Going further (optional): where does 0.73 come from?
+The true marginal HR in the treated isn't written into the simulation, so
+we work it out by brute force. Simulate a very large cohort, and give every
+*treated* patient two survival times: one with treatment and one without,
+using the same random number for both. Comparing the two sets of times gives
+the true average effect of treatment in the treated, with the same follow-up
+as in the real study:
+
+```{r}
+#| label: marginal-truth
+big <- simulate_cohort(n = 200000, seed = 1)
+tr  <- big[big$treated == 1, ]
+n_t <- nrow(tr)
+
+# Each treated patient's risk score, from the model in simulate_cohort()
+lp <- with(tr, 0.06 * (age - 65) + 0.6 * diabetes + 0.03 * (bmi - 28) -
+               0.25 * female + 0.55 * smoker)
+
+# Two survival times per patient: without and with treatment (HR 0.70)
+set.seed(1)
+u <- runif(n_t)
+t_untreated <- (-log(u) / (0.05 * exp(lp)))^(1 / 1.2)
+t_treated   <- (-log(u) / (0.05 * exp(lp + log(0.70))))^(1 / 1.2)
+
+# The same censoring as in the study
+t_cens <- pmin(runif(n_t, 3, 8), rexp(n_t, rate = 0.04))
+
+both <- data.frame(
+  time   = c(pmin(t_untreated, t_cens), pmin(t_treated, t_cens)),
+  status = c(t_untreated <= t_cens, t_treated <= t_cens),
+  trt    = rep(0:1, each = n_t)
+)
+exp(coef(coxph(Surv(time, status) ~ trt, data = both)))
+```
+
+The answer depends a little on how long patients are followed: with no
+censoring at all, it would be about 0.77.
+:::
+::::
+
+## Step 5: absolute effects are easier to explain {#sec-absolute}
+
+HRs are relative. Clinicians and patients often find **absolute** survival
+differences easier to understand, e.g. "5-year survival was 69% with
+treatment and 61% without". You can read these straight off the matched KM
+curves, using `summary()` as in Chapter 2:
+
+```{r}
+#| label: abs-effects
+km_m <- survfit(Surv(time, status) ~ treated, data = matched)
+s5 <- summary(km_m, times = 5)
+
+# The key numbers, one row per group
+data.frame(group    = s5$strata,
+           survival = round(s5$surv, 3),
+           lower    = round(s5$lower, 3),
+           upper    = round(s5$upper, 3))
+```
+
+`summary()` returns a list, and here we pick out the parts we need: the
+estimated 5-year survival in each group (`treated=0` and `treated=1`), with
+the lower and upper limits of its 95% CI. Printing `s5` itself shows the
+same numbers, plus the number at risk and the number of deaths.
+
+:::: {.optional}
+::: {.callout-note collapse="true" icon="false"}
+## Going further (optional): restricted mean survival time (RMST)
+The **restricted mean survival time** is the average event-free time up to
+a chosen horizon, e.g. "on average, treated patients lived 4.3 of the first
+5 years". It doesn't rely on proportional hazards, so it is useful when
+that assumption fails:
+
+```{r}
+#| label: rmst
+print(km_m, rmean = 5)   # RMST up to 5 years, by group
+```
+
+The `rmean` column is the RMST in each group.
+
+**For more**, including how to compare two groups' RMSTs with a confidence
+interval and how to choose the time horizon, see @sec-nonph.
+:::
+::::
+
+## Step 6: sensitivity to unmeasured confounding
+
+Matching can't fix confounders you didn't measure (try the "Severity
+unmeasured" scenario in @sec-app-psm again). So always ask: *is there an
+important confounder we didn't measure?* Discuss it honestly in the
+limitations.
+
+:::: {.optional}
+::: {.callout-note collapse="true" icon="false"}
+## Going further (optional): the E-value
+The **E-value** [@vanderweele2017] asks *how strong* an unmeasured
+confounder would need to be to explain away the result. The `EValue`
+package calculates it:
+
+```r
+# install.packages("EValue")
+EValue::evalues.HR(est = 0.68, lo = 0.57, hi = 0.81, rare = FALSE)
+```
+:::
+::::
+
+## Reporting checklist
+
+When writing up a PS-matched survival analysis, report:
+
+- [ ] the covariates in the PS model, and why they were chosen (ideally with
+      a DAG);
+- [ ] the matching method, ratio, caliper, and with or without replacement;
+- [ ] the **number of treated patients discarded**, and how the matched
+      population differs from the full one;
+- [ ] a balance table or Love plot, before and after matching (SMDs);
+- [ ] KM curves with risk tables for the matched cohort;
+- [ ] the HR with a robust CI, and a check of proportional hazards;
+- [ ] an absolute measure (survival difference or RMST);
+- [ ] a sensitivity analysis (e.g. E-value, different caliper, or IPTW: see @sec-weighting);
+- [ ] how much data was missing, and how it was handled (@sec-missing).
+
+The STROBE guidelines for observational studies are a useful framework.
+
+### Writing it up: an example
+
+Here is how this chapter's analysis might be written up. Adapt the
+bracketed details to your own study.
+
+> **Methods.** Propensity scores were estimated by logistic regression of
+> treatment on age, sex, diabetes, BMI and smoking status. Each treated
+> patient was matched to one untreated patient by nearest-neighbour
+> matching without replacement on the logit of the propensity score, with
+> a caliper of 0.2 standard deviations. Covariate balance was assessed with
+> standardised mean differences (SMDs), with |SMD| < 0.1 taken to indicate
+> good balance. In the matched cohort, the effect of treatment on mortality
+> was estimated with a Cox proportional hazards model, using robust
+> standard errors clustered on matched pairs. Analyses used R with the
+> survival, MatchIt and cobalt packages.
+>
+> **Results.** Of 849 treated patients, 714 were matched to 714 untreated
+> patients. 135 treated patients had no untreated patient within the
+> caliper and were excluded. After matching, all SMDs were below 0.1 (the
+> largest was 0.07, for age). There were 485 deaths in the matched cohort.
+> Treatment was associated with a lower hazard of death (HR 0.68, 95% CI
+> 0.57 to 0.81, p < 0.001). Estimated 5-year survival was 69% (95% CI 65% to
+> 73%) with treatment and 61% (95% CI 57% to 65%) without.
+
+```{ojs}
+//| echo: false
+import {quiz} from "./js/survtools.js"
+```
+
+## Quick quiz {.unnumbered}
+
+Choose an answer to each question. You'll get instant feedback and can change your answer as often as you like.
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "Why do we use <code>robust = TRUE, cluster = subclass</code> when fitting the Cox model to matched data?",
+  "options": [
+   "To adjust for confounding",
+   "Because members of a matched pair are similar, so observations aren't independent and ordinary SEs are wrong",
+   "To make the hazard ratio closer to 1",
+   "It's needed for the model to converge"
+  ],
+  "answer": 1,
+  "why": "The sandwich (robust) variance allows for correlation within matched pairs. It changes the standard error and CI, not the HR itself.",
+  "hints": [
+   "Matching handles confounding. The cluster option only affects the standard errors.",
+   "",
+   "The point estimate is the same with or without it.",
+   "The model converges either way."
+  ]
+ },
+ {
+  "q": "Why should you check covariate balance <i>before</i> looking at the survival outcomes?",
+  "options": [
+   "Because the outcome data might be missing",
+   "So that choices about the matching (caliper, covariates) can't be influenced, even unconsciously, by which result they give",
+   "Because balance can't be checked after the outcomes are known",
+   "It doesn't matter when you check balance"
+  ],
+  "answer": 1,
+  "why": "Settling the design first, without seeing outcomes, works like the blinding in a trial. It stops you from trying different matching options until you get the result you hoped for.",
+  "hints": [
+   "Missing data is a separate issue.",
+   "",
+   "Balance can be checked at any time. The point is about what you've seen when you make design choices.",
+   "If you try several matching options and look at the outcome each time, you can end up choosing the one with the 'best' result."
+  ]
+ },
+ {
+  "q": "In the full cohort the naive HR was about 1.11, so treatment looked harmful. Why?",
+  "options": [
+   "Treatment really is harmful",
+   "Treated patients were older and more often diabetic or smokers, so they were at higher risk anyway (confounding by indication)",
+   "There was too much censoring",
+   "The proportional hazards assumption failed"
+  ],
+  "answer": 1,
+  "why": "The simulation gave treatment to higher-risk patients. Compared crudely, their extra baseline risk hides the benefit of treatment.",
+  "hints": [
+   "We built the data with a true HR of 0.70, so treatment is beneficial.",
+   "",
+   "Non-informative censoring doesn't bias KM or Cox estimates.",
+   "PH holds in these data. The problem is confounding."
+  ]
+ },
+ {
+  "q": "Which of these is an <i>absolute</i> effect measure to report alongside the HR?",
+  "options": [
+   "The hazard ratio's p-value",
+   "The difference in 5-year survival between matched groups (or the RMST difference)",
+   "The concordance index",
+   "The standardised mean difference"
+  ],
+  "answer": 1,
+  "why": "Survival differences at fixed times and RMST differences are on the scale of patients and time, which is easier to interpret than a ratio of rates.",
+  "hints": [
+   "A p-value is not an effect measure.",
+   "",
+   "Concordance measures how well a model discriminates, not a treatment effect.",
+   "SMDs describe covariate balance, not outcomes."
+  ]
+ }
+])
+```
+
+## Exercise
+
+### Exercise 7.1
+
+A new cohort, `null_cohort`, is loaded in each box. It was made with
+`simulate_cohort(n = 5000, hr_treat = 1, seed = 1)`, so the **true effect is
+null** (HR = 1). The exercise has three parts, each checked separately. The
+first run downloads some packages and matches 5000 patients, so it may take
+a little while.
+
+#### Part 1: naive and matched analyses {.unnumbered}
+
+Fit the naive Cox model. Then match the patients, and fit the matched Cox model (make that the last line). What do the two analyses conclude?
+
+```{webr}
+#| setup: true
+#| exercise: ex_null_match
+for (pkg in c("MatchIt", "cobalt", "ggsurvfit")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, quiet = TRUE)
+}
+library(MatchIt)
+library(cobalt)
+library(survival)
+library(ggsurvfit)
+simulate_cohort <- function(n = 2000, hr_treat = 0.70, seed = 2026) {
+  set.seed(seed)
+  age      <- round(pmin(pmax(rnorm(n, 65, 10), 35), 95))
+  female   <- rbinom(n, 1, 0.45)
+  diabetes <- rbinom(n, 1, plogis(-1.4 + 0.04 * (age - 65)))
+  bmi      <- round(rnorm(n, 28, 4.5), 1)
+  smoker   <- rbinom(n, 1, 0.25)
+  lp_treat <- -0.6 + 0.06 * (age - 65) + 1.0 * diabetes + 0.08 * (bmi - 28) -
+    0.3 * female + 0.4 * smoker
+  treated <- rbinom(n, 1, plogis(lp_treat))
+  lp_death <- log(hr_treat) * treated + 0.06 * (age - 65) + 0.6 * diabetes +
+    0.03 * (bmi - 28) - 0.25 * female + 0.55 * smoker
+  shape  <- 1.2
+  lambda <- 0.05                       # baseline hazard scale (per year)
+  t_event <- (-log(runif(n)) / (lambda * exp(lp_death)))^(1 / shape)
+  t_admin   <- runif(n, 3, 8)          # study ends 3-8 years after entry
+  t_dropout <- rexp(n, rate = 0.04)
+  t_cens    <- pmin(t_admin, t_dropout)
+  time   <- pmin(t_event, t_cens)
+  status <- as.integer(t_event <= t_cens)
+  data.frame(
+    id       = seq_len(n),
+    age, female, diabetes, bmi, smoker,
+    treated,
+    time     = round(time, 3),
+    status
+  )
+}
+null_cohort <- simulate_cohort(n = 5000, hr_treat = 1, seed = 1)
+```
+
+```{webr}
+#| exercise: ex_null_match
+#| caption: "Exercise 7.1, part 1: naive vs matched"
+# Naive Cox model
+coxph(Surv(time, status) ~ treated, data = null_cohort)
+
+# Match, then fit the matched Cox model
+m_null <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                  data = null_cohort, link = "linear.logit", caliper = ______)
+md_null <- ______(m_null)
+coxph(Surv(time, status) ~ treated, data = md_null,
+      robust = TRUE, cluster = ______)
+```
+
+::: {.hint exercise="ex_null_match"}
+::: {.callout-note collapse="false"}
+## Hint 1
+Use the same caliper as before (0.2), and extract the matched data with `match.data()`.
+:::
+:::
+
+::: {.hint exercise="ex_null_match"}
+::: {.callout-note collapse="false"}
+## Hint 2
+The matched pairs are identified by `subclass`.
+:::
+:::
+
+::: {.solution exercise="ex_null_match"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+coxph(Surv(time, status) ~ treated, data = null_cohort)
+m_null <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                  data = null_cohort, link = "linear.logit", caliper = 0.2)
+md_null <- match.data(m_null)
+coxph(Surv(time, status) ~ treated, data = md_null,
+      robust = TRUE, cluster = subclass)
+```
+
+The **naive** analysis is badly wrong: HR ≈ 1.86. A treatment that does
+nothing looks like it nearly doubles the hazard of death. **Matching**
+removes most of that bias, bringing the HR down to about 1.21. But it
+doesn't get all the way to 1: the CI (1.09–1.34) still excludes the null.
+Parts 2 and 3 look at why.
+:::
+:::
+
+```{webr}
+#| exercise: ex_null_match
+#| check: true
+r <- .result
+if (!inherits(r, "coxph") || !identical(attr(terms(r), "term.labels"), "treated")) {
+  list(correct = FALSE, message = "Make the last line the matched Cox model with just <code>treated</code>.")
+} else if (r$n > 4000) {
+  list(correct = FALSE, message = "Fit the model to the <b>matched</b> data, <code>md_null</code>.")
+} else if (is.null(r$naive.var)) {
+  list(correct = FALSE, message = "Add <code>robust = TRUE, cluster = subclass</code>.")
+} else {
+  list(correct = TRUE, message = sprintf("Correct! Naive HR ≈ 1.86, matched HR = %.2f. Matching removed most of the bias, but not all of it, since the truth is 1.", exp(coef(r)[["treated"]])))
+}
+```
+
+#### Part 2: balance and KM curves {.unnumbered}
+
+The matched data, `md_null`, are ready in this box. Draw matched KM curves, then check balance (make the balance table the last line). Are any covariates still slightly imbalanced?
+
+```{webr}
+#| setup: true
+#| exercise: ex_null_balance
+for (pkg in c("MatchIt", "cobalt", "ggsurvfit")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, quiet = TRUE)
+}
+library(MatchIt)
+library(cobalt)
+library(survival)
+library(ggsurvfit)
+simulate_cohort <- function(n = 2000, hr_treat = 0.70, seed = 2026) {
+  set.seed(seed)
+  age      <- round(pmin(pmax(rnorm(n, 65, 10), 35), 95))
+  female   <- rbinom(n, 1, 0.45)
+  diabetes <- rbinom(n, 1, plogis(-1.4 + 0.04 * (age - 65)))
+  bmi      <- round(rnorm(n, 28, 4.5), 1)
+  smoker   <- rbinom(n, 1, 0.25)
+  lp_treat <- -0.6 + 0.06 * (age - 65) + 1.0 * diabetes + 0.08 * (bmi - 28) -
+    0.3 * female + 0.4 * smoker
+  treated <- rbinom(n, 1, plogis(lp_treat))
+  lp_death <- log(hr_treat) * treated + 0.06 * (age - 65) + 0.6 * diabetes +
+    0.03 * (bmi - 28) - 0.25 * female + 0.55 * smoker
+  shape  <- 1.2
+  lambda <- 0.05                       # baseline hazard scale (per year)
+  t_event <- (-log(runif(n)) / (lambda * exp(lp_death)))^(1 / shape)
+  t_admin   <- runif(n, 3, 8)          # study ends 3-8 years after entry
+  t_dropout <- rexp(n, rate = 0.04)
+  t_cens    <- pmin(t_admin, t_dropout)
+  time   <- pmin(t_event, t_cens)
+  status <- as.integer(t_event <= t_cens)
+  data.frame(
+    id       = seq_len(n),
+    age, female, diabetes, bmi, smoker,
+    treated,
+    time     = round(time, 3),
+    status
+  )
+}
+null_cohort <- simulate_cohort(n = 5000, hr_treat = 1, seed = 1)
+m_null <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                  data = null_cohort, link = "linear.logit", caliper = 0.2)
+md_null <- match.data(m_null)
+```
+
+```{webr}
+#| exercise: ex_null_balance
+#| caption: "Exercise 7.1, part 2: balance"
+#| fig-height: 5
+# Matched KM curves
+survfit2(Surv(time, status) ~ treated, data = md_null) |>
+  ggsurvfit() +
+  add_risktable() +
+  labs(x = "Years")
+
+# Balance after matching
+bal.tab(m_null, binary = "std", thresholds = c(m = ______))
+```
+
+::: {.hint exercise="ex_null_balance"}
+::: {.callout-note collapse="false"}
+## Hint 1
+The usual threshold for |SMD| is 0.1.
+:::
+:::
+
+::: {.solution exercise="ex_null_balance"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+survfit2(Surv(time, status) ~ treated, data = md_null) |>
+  ggsurvfit() +
+  add_risktable() +
+  labs(x = "Years")
+bal.tab(m_null, binary = "std", thresholds = c(m = 0.1))
+```
+
+All the SMDs are below 0.1, so by the usual rule of thumb the matching
+"passed". But small imbalances remain (age ≈ 0.06, diabetes ≈ 0.07). These
+are strong predictors of death, so even small imbalances leave some
+**residual confounding**. Chance plays a part too: a fully adjusted Cox model
+on the whole cohort also gives about 1.09.
+:::
+:::
+
+```{webr}
+#| exercise: ex_null_balance
+#| check: true
+if (!inherits(.result, "bal.tab")) {
+  list(correct = FALSE, message = "Make the last line the balance table: <code>bal.tab(m_null, ...)</code>.")
+} else if (!grepl("c\\(\\s*m\\s*=\\s*0?\\.1\\s*\\)", .user_code)) {
+  list(correct = FALSE, message = "Use the usual threshold: <code>thresholds = c(m = 0.1)</code>.")
+} else {
+  list(correct = TRUE, message = "Correct! Every |SMD| is below 0.1, but age (0.06) and diabetes (0.07) are still slightly imbalanced. Both strongly predict death.")
+}
+```
+
+#### Part 3: doubly robust {.unnumbered}
+
+Refit the matched Cox model with the five covariates added ("doubly robust"). What changes?
+
+```{webr}
+#| setup: true
+#| exercise: ex_null_dr
+for (pkg in c("MatchIt", "cobalt", "ggsurvfit")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, quiet = TRUE)
+}
+library(MatchIt)
+library(cobalt)
+library(survival)
+library(ggsurvfit)
+simulate_cohort <- function(n = 2000, hr_treat = 0.70, seed = 2026) {
+  set.seed(seed)
+  age      <- round(pmin(pmax(rnorm(n, 65, 10), 35), 95))
+  female   <- rbinom(n, 1, 0.45)
+  diabetes <- rbinom(n, 1, plogis(-1.4 + 0.04 * (age - 65)))
+  bmi      <- round(rnorm(n, 28, 4.5), 1)
+  smoker   <- rbinom(n, 1, 0.25)
+  lp_treat <- -0.6 + 0.06 * (age - 65) + 1.0 * diabetes + 0.08 * (bmi - 28) -
+    0.3 * female + 0.4 * smoker
+  treated <- rbinom(n, 1, plogis(lp_treat))
+  lp_death <- log(hr_treat) * treated + 0.06 * (age - 65) + 0.6 * diabetes +
+    0.03 * (bmi - 28) - 0.25 * female + 0.55 * smoker
+  shape  <- 1.2
+  lambda <- 0.05                       # baseline hazard scale (per year)
+  t_event <- (-log(runif(n)) / (lambda * exp(lp_death)))^(1 / shape)
+  t_admin   <- runif(n, 3, 8)          # study ends 3-8 years after entry
+  t_dropout <- rexp(n, rate = 0.04)
+  t_cens    <- pmin(t_admin, t_dropout)
+  time   <- pmin(t_event, t_cens)
+  status <- as.integer(t_event <= t_cens)
+  data.frame(
+    id       = seq_len(n),
+    age, female, diabetes, bmi, smoker,
+    treated,
+    time     = round(time, 3),
+    status
+  )
+}
+null_cohort <- simulate_cohort(n = 5000, hr_treat = 1, seed = 1)
+m_null <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                  data = null_cohort, link = "linear.logit", caliper = 0.2)
+md_null <- match.data(m_null)
+```
+
+```{webr}
+#| exercise: ex_null_dr
+#| caption: "Exercise 7.1, part 3: doubly robust"
+coxph(Surv(time, status) ~ treated + ______,
+      data = md_null, robust = TRUE, cluster = subclass)
+```
+
+::: {.hint exercise="ex_null_dr"}
+::: {.callout-note collapse="false"}
+## Hint 1
+Add `age + female + diabetes + bmi + smoker` after `treated`.
+:::
+:::
+
+::: {.solution exercise="ex_null_dr"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+coxph(Surv(time, status) ~ treated + age + female + diabetes + bmi + smoker,
+      data = md_null, robust = TRUE, cluster = subclass)
+```
+
+Adding the covariates mops up much of the remaining confounding: HR ≈ 1.12,
+CI 1.00–1.25. Combining matching with adjustment like this is called
+*doubly robust* estimation: the matching and the outcome model each get a
+chance to deal with the confounding, so what one misses, the other can
+catch.
+
+The lesson: matching **reduces** confounding but rarely eliminates it. For
+strong prognostic variables, aim for SMDs well below 0.1, and consider
+covariate adjustment in the matched sample as well.
+:::
+:::
+
+```{webr}
+#| exercise: ex_null_dr
+#| check: true
+r <- .result
+if (!inherits(r, "coxph") ||
+    !all(c("treated", "age", "female", "diabetes", "bmi", "smoker") %in% attr(terms(r), "term.labels"))) {
+  list(correct = FALSE, message = "Add all five covariates: <code>treated + age + female + diabetes + bmi + smoker</code>.")
+} else {
+  list(correct = TRUE, message = sprintf("Correct! Doubly robust HR = %.2f: closer to the true value of 1 than matching alone (about 1.21).", exp(coef(r)[["treated"]])))
+}
+```
+
+## Summary
+
+::: {.callout-important icon="false"}
+## Key points
+- **Design first, outcomes second**: settle the matching and check balance before looking at survival.
+- In the matched sample, fit a Cox model with **treatment only**, using the matching weights and a **robust (cluster) standard error** for the matched pairs.
+- Here, matching turned a misleading naive HR of 1.11 into 0.68, close to the true marginal HR of 0.73. Full covariate adjustment gave an answer close to the true conditional HR of 0.70. The two truths differ because the methods answer slightly different questions.
+- Report **absolute** effects too, such as survival at 5 years, which are easier to explain than HRs.
+- Matching reduces confounding but rarely removes it completely, and it can't fix unmeasured confounders. Say so in the limitations.
+:::
+
+**Answering the question.** Yes. In the matched cohort the hazard ratio was 0.68 (95% CI 0.57 to 0.81), about a 32% lower hazard of death with treatment. Estimated 5-year survival was 69% with treatment and 61% without.
+
+## Further reading
+
+All of these are free to read online unless marked otherwise. The whole
+book's reading list, grouped by topic, is in @sec-further-reading.
+
+- @austin2013: How to estimate and report treatment effects from propensity score analyses with survival outcomes, including matched Kaplan–Meier curves and marginal hazard ratios.
+- @strobe2007: The STROBE reporting guideline for observational studies. Use its checklist when you write up an analysis like this one.
+- @royston2013: *More advanced.* The restricted mean survival time, for when hazard ratios aren't constant over time.
+- @hernan2020: *Advanced.* A free book on causal inference from observational data, for going deeper into confounding and how to design an observational analysis.

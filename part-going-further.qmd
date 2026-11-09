@@ -1,0 +1,16 @@
+# Going further {.unnumbered}
+
+The core course ends with Chapter 7. The chapters in this part are for
+**when you need them**, for example when your own data raise a problem the
+core chapters only touch on. Each one starts with a short "You need this
+chapter if…" box, so you can tell quickly whether it applies to you.
+
+| Chapter | Read it if… |
+|---|---|
+| 8. Shiny apps | You want open-ended practice on real and simulated data. |
+| 9. Weighting and other matching methods | You want the effect in the whole population, matching drops too many patients, or you need a second method. |
+| 10. When proportional hazards fail | `cox.zph()` flags your main exposure, or the KM curves cross. |
+| 11. Missing data | Your models drop patients because of missing values, or a confounder has gaps. |
+
+The "Going further" boxes in the core chapters give a short taste of these
+topics, and link here for the full treatment.

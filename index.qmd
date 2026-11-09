@@ -1,0 +1,116 @@
+# Welcome {.unnumbered}
+
+This book is a hands-on introduction to three closely related tools for
+analysing health (and other) data in R:
+
+1. **Kaplan–Meier curves**, which describe how survival changes over time
+   and compare groups.
+2. **Cox proportional hazards regression**, which models the effect of
+   several variables on the hazard of an event.
+3. **Propensity score matching**, which helps you estimate treatment effects
+   from *observational* data, where treatment wasn't randomised.
+
+The last chapter combines them. It takes an observational cohort, matches
+treated and untreated patients on their propensity scores, and then
+estimates the treatment effect on survival with Kaplan–Meier and Cox models.
+
+## The big picture {.unnumbered}
+
+```{mermaid}
+%%| fig-cap: "How the chapters fit together. Chapters 1–3 describe and model survival, and Chapter 4 covers three common traps. Chapters 5–6 deal with confounding in observational data. Chapter 7 then uses the Chapter 2–3 methods (dotted arrows) on the matched data."
+flowchart LR
+  A["<b>Ch 1</b><br/>Time-to-event data<br/>and censoring"] --> B["<b>Ch 2</b><br/>Describe and compare:<br/>Kaplan–Meier curves,<br/>log-rank test"]
+  B --> C["<b>Ch 3</b><br/>Measure and adjust:<br/>Cox regression,<br/>hazard ratios"]
+  C --> T["<b>Ch 4</b><br/>Common traps:<br/>censoring, competing<br/>events, time zero"]
+  D["Observational data:<br/>treatment not<br/>randomised"] --> E["<b>Ch 5</b><br/>Confounding and<br/>propensity scores"]
+  T --> E
+  E --> G["<b>Ch 6</b><br/>Matching in R:<br/>MatchIt and<br/>balance checks"]
+  G --> F["<b>Ch 7</b><br/>Matched analysis:<br/>KM and Cox on<br/>the matched data"]
+  B -.-> F
+  C -.-> F
+```
+
+- **Kaplan–Meier curves** *describe* survival over time, and the
+  **log-rank test** asks whether groups differ.
+- **Cox regression** *measures* how much groups differ (a hazard ratio) and
+  can *adjust* for other variables.
+- When treatment wasn't randomised, treated and untreated patients may
+  differ in ways that also affect survival (**confounding**). **Propensity
+  score matching** creates comparable groups first. Then the same KM and Cox
+  methods are used on the matched data.
+
+## How to use this book {.unnumbered}
+
+Each chapter mixes three things:
+
+- **Concepts.** Short explanations of what a method does and why.
+- **R code.** Worked examples you can copy, and live exercises you run in the page. Each chapter builds on the last.
+- **Interactive apps.** Small simulations that run in your browser. Change
+  the sliders to see how a method behaves. Because the data are simulated,
+  *we know the true answer* and can see when a method gets it right or wrong.
+
+::: {.callout-tip}
+## Start here
+If you're new to these topics, read **[Before you start](00-before-you-start.qmd)**
+first. It lists what the book assumes, with short refreshers. It also shows
+how to set up R and download the course files, and explains what each type
+of box in the book is for. Unfamiliar terms are defined in the
+[Glossary](a2-glossary.qmd).
+:::
+
+The interactive apps **and the R exercises** run in your web browser, so
+you don't need to install anything to work through the book. Each exercise
+is a live code box where you write R, run it, and get instant feedback. Chapter 8 (@sec-shiny) describes two extra **Shiny apps** that
+you download and run in RStudio.
+
+::: {.callout-note}
+## The data used in this book
+- `survival::lung`: survival of 228 patients with advanced lung cancer
+  (NCCTG). This dataset comes with the survival package and is used in
+  Chapters 1–3. One exercise and Chapter 8 also use `survival::veteran`, a
+  lung cancer trial. Chapter 4 uses three more datasets from the survival
+  package: `mgus2` (a blood condition that can progress to cancer) and the
+  Stanford heart transplant data (`jasa` and `heart`).
+- A **simulated observational cohort** (@sec-cohort). Treatment is given
+  more often to sicker patients, so a naive comparison is misleading. The
+  true treatment effect is known (HR = 0.70). It is used in Chapters 5–7,
+  and you can [download the script](R/simulate_cohort.R){download="simulate_cohort.R"}
+  that creates it.
+:::
+
+## A suggested route {.unnumbered}
+
+The core material (skipping the "Going further" boxes) fits into six
+sessions of about 2 hours:
+
+| Session | Chapters | Topics |
+|---|---|---|
+| 1 | Before you start, 1, 2 | Survival data and censoring, Kaplan–Meier curves, the log-rank test |
+| 2 | 3 | Hazards, Cox regression, checking proportional hazards |
+| 3 | 4 (traps 1–2) | Informative censoring and competing risks |
+| 4 | 4 (trap 3) | Immortal time bias, time-varying covariates, Exercise 4.1 |
+| 5 | 5 | Confounding, propensity scores, matching by hand |
+| 6 | 6, 7 | Matching in R and checking balance, then a complete matched survival analysis |
+
+Chapter 8's Shiny apps are for open-ended practice after the sessions.
+Chapters 9–11, in the **Going further** part, cover weighting and other
+matching methods, what to do when proportional hazards fail, and missing
+data. Read them when your own analysis needs them.
+
+## Licence and reuse {.unnumbered}
+
+© 2026 Tom Goodale. You're welcome to use and adapt this book.
+
+- The **text, figures and teaching material** are licensed under
+  [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/): you can share
+  and adapt them for any purpose, as long as you credit the author and say
+  if you changed anything.
+- The **code** (in the chapters, exercises, apps and downloadable files) is
+  licensed under the [MIT licence](LICENSE.md), so you can copy it into your
+  own analyses freely.
+
+To credit the book: Goodale, T. (2026). *Survival Analysis & Propensity
+Scores in R: Kaplan–Meier curves, Cox regression and propensity score
+matching, with interactive apps.* Licensed under CC BY 4.0. Full details are
+in the [licence file](LICENSE.md).
+

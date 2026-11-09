@@ -1,0 +1,785 @@
+---
+format:
+  live-html:
+    webr:
+      packages:
+        - survival
+---
+
+# Matching in R {#sec-matchit}
+
+```{r}
+#| label: setup-ch5
+#| include: false
+library(survival)
+library(MatchIt)
+library(cobalt)
+library(dplyr)
+library(ggplot2)
+source("R/simulate_cohort.R")
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+```
+
+{{< include ./_extensions/r-wasm/live/_knitr.qmd >}}
+
+::: {.callout-note icon="false"}
+## In this chapter
+**The question.** In Chapter 5 we matched a few patients by hand. How do we match the whole cohort in R, and how do we know whether the matching worked?
+
+**By the end of this chapter you will be able to:**
+
+- match patients with `matchit()`, using a caliper on the logit scale;
+- read the matching output, including how many patients were matched and dropped;
+- check balance with SMDs, Love plots and distribution plots, using cobalt;
+- extract the matched data, ready for the survival analysis in Chapter 7.
+:::
+
+## Warm-up: remember Chapter 5? {.unnumbered}
+
+Two quick questions to bring back the key ideas from last time.
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "What does a caliper do in propensity score matching?",
+  "options": [
+   "It sets the maximum distance allowed between the scores of two matched patients",
+   "It decides which covariates go into the propensity score model",
+   "It sets the number of controls for each treated patient",
+   "It removes patients with missing data"
+  ],
+  "answer": 0,
+  "why": "A treated patient with no control within the caliper is left unmatched, rather than being given a poor match.",
+  "hints": [
+   "",
+   "That's a modelling choice, made before matching.",
+   "That's the matching ratio.",
+   "Missing data are a separate issue."
+  ]
+ },
+ {
+  "q": "Why are propensity scores compared on the logit (log-odds) scale when matching?",
+  "options": [
+   "On the probability scale, scores near 0 and 1 are squashed together, so equal distances don't mean equally good matches",
+   "Because logit scores are always positive",
+   "Because the logit scale makes every patient match",
+   "Because MatchIt can't use probabilities"
+  ],
+  "answer": 0,
+  "why": "The logit scale spreads the scores out evenly, so a distance means the same thing everywhere.",
+  "hints": [
+   "",
+   "Logit scores can be negative: probabilities below 0.5 give negative logits.",
+   "Matching on any scale can leave patients unmatched.",
+   "MatchIt can use either scale. That's why the scale has to be set deliberately."
+  ]
+ }
+])
+```
+
+## From hand matching to `matchit()`
+
+You'll need the simulated cohort from Chapter 5. Load it in the same way:
+
+```{r}
+#| label: load-cohort
+#| eval: false
+source("simulate_cohort.R")
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+```
+
+## The workflow, and the tools {#sec-workflow}
+
+Putting it all together, a propensity score analysis has six steps:
+
+1. **Specify** the confounders and the estimand.
+2. **Estimate** the propensity score, usually by logistic regression.
+3. **Match** treated to untreated patients with similar scores.
+4. **Check balance** in the matched sample. If it's poor, go back to step
+   2 or 3, e.g. add interactions or squared terms, or change the caliper.
+   *Don't look at outcomes* until the design is settled.
+5. **Estimate** the treatment effect in the matched sample (@sec-together).
+6. **Think about sensitivity** to unmeasured confounding.
+
+In Chapter 5 we did steps 2 and 3 by hand, to see how they work. In
+practice, you use two R packages:
+
+- **MatchIt** [@ho2011] does steps 2 and 3 in one function, `matchit()`.
+  It fits the propensity score model, then matches using the method,
+  ratio and caliper you choose. It returns the matched data, ready for
+  analysis.
+- **cobalt** does step 4. It produces balance tables (`bal.tab()`) and
+  plots, including the *Love plot* (`love.plot()`), which shows the SMD of
+  each covariate before and after matching.
+
+## Propensity score matching in R with `MatchIt`
+
+### Steps 2–3: estimate the PS and match
+
+`matchit()` does what we did by hand in Chapter 5 (@sec-ps and @sec-matching). It fits
+the same logistic regression, then performs 1:1 nearest-neighbour matching
+without replacement, with a caliper of 0.2 SDs of the logit propensity
+score:
+
+```{r}
+#| label: matchit
+m_out <- matchit(
+  treated ~ age + female + diabetes + bmi + smoker,  # the PS model
+  data     = cohort,
+  method   = "nearest",      # greedy nearest-neighbour matching
+  distance = "glm",          # propensity score from logistic regression ...
+  link     = "linear.logit", # ... with distances on the logit scale
+  caliper  = 0.2,            # max distance: 0.2 SDs of the logit PS
+  ratio    = 1               # 1 control per treated patient
+)
+m_out
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+A summary of what was done: the matching method, how the propensity score
+was estimated ("linearized" means the logit scale), the **caliper**
+(0.169), and the number of patients before (2000) and after (1428)
+matching.
+
+**Watch the scale.** The caliper of 0.169 matches the value we calculated by
+hand in Chapter 5, because `link = "linear.logit"` puts it on the logit scale
+[@austin2011]. Without that argument, `matchit()` measures distances and the
+caliper on the *probability* scale.
+:::
+
+### Step 4: check balance with `summary()` and `cobalt`
+
+```{r}
+#| label: matchit-summary
+summary(m_out, un = FALSE)   # un = FALSE hides the pre-matching table
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+**Top table**: balance in the *matched* data, one row per covariate
+(`distance` is the propensity score itself).
+
+- **Means Treated / Means Control**: the group means after matching.
+  For binary variables these are proportions.
+- **Std. Mean Diff.**: the SMD. **This is the column to check**: every
+  value should be close to 0 (|SMD| < 0.1).
+- The other columns (`Var. Ratio`, `eCDF`, `Std. Pair Dist.`) compare other
+  features of the distributions. You can leave them for now.
+
+**Sample sizes**: `All` is before matching. `Matched` is the patients kept.
+`Unmatched` is the patients left out, here 135 treated patients with no
+control within the caliper, plus the spare controls.
+:::
+
+Every SMD is below 0.1, so the matching has balanced the measured
+covariates.
+
+A **Love plot** shows balance before and after matching at a glance. (It's
+named after the statistician Thomas Love, who popularised it, not after
+the emotion.)
+
+```{r}
+#| label: fig-love
+#| fig-cap: "Covariate balance before and after matching."
+#| fig-height: 3.5
+love.plot(m_out, stats = "mean.diffs", abs = TRUE, binary = "std",
+          thresholds = c(m = 0.1), var.order = "unadjusted",
+          colors = c("#E69F00", "#0072B2"), shapes = c("circle", "triangle"))
+```
+
+Check the **overlap** of propensity scores, before and after:
+
+```{r}
+#| label: fig-psdist
+#| fig-cap: "Distribution of propensity scores before and after matching."
+#| fig-height: 3.5
+bal.plot(m_out, var.name = "distance", which = "both",
+         type = "histogram", mirror = TRUE,
+         colors = c("#E69F00", "#0072B2"))
+```
+
+For continuous variables, check the whole distribution, not just the mean:
+
+```{r}
+#| label: fig-balage
+#| fig-cap: "Distribution of age in treated and control patients, before and after matching."
+#| fig-height: 3.5
+bal.plot(m_out, var.name = "age", which = "both")
+```
+
+### Getting the matched data
+
+`match.data()` returns the matched sample. It has three extra columns:
+`distance` (the PS), `weights` (all 1 for 1:1 matching) and `subclass`
+(which pair each patient belongs to). We'll need `subclass` for the
+standard errors in Chapter 7.
+
+```{r}
+#| label: match-data
+matched <- match.data(m_out)
+dim(matched)
+head(matched[, c("id", "treated", "age", "diabetes", "distance", "weights", "subclass")])
+```
+
+### Practice: fill in the blanks
+
+*This is a live exercise: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used one before.*
+
+The simulated `cohort` is already loaded. Replace each `______`, then click **Run Code**. (The first run downloads MatchIt and cobalt, so it takes a little longer.)
+
+```{webr}
+#| setup: true
+#| exercise: ex_match
+for (pkg in c("MatchIt", "cobalt")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, quiet = TRUE)
+}
+library(MatchIt)
+library(cobalt)
+simulate_cohort <- function(n = 2000, hr_treat = 0.70, seed = 2026) {
+  set.seed(seed)
+  age      <- round(pmin(pmax(rnorm(n, 65, 10), 35), 95))
+  female   <- rbinom(n, 1, 0.45)
+  diabetes <- rbinom(n, 1, plogis(-1.4 + 0.04 * (age - 65)))
+  bmi      <- round(rnorm(n, 28, 4.5), 1)
+  smoker   <- rbinom(n, 1, 0.25)
+  lp_treat <- -0.6 + 0.06 * (age - 65) + 1.0 * diabetes + 0.08 * (bmi - 28) -
+    0.3 * female + 0.4 * smoker
+  treated <- rbinom(n, 1, plogis(lp_treat))
+  lp_death <- log(hr_treat) * treated + 0.06 * (age - 65) + 0.6 * diabetes +
+    0.03 * (bmi - 28) - 0.25 * female + 0.55 * smoker
+  shape  <- 1.2
+  lambda <- 0.05                       # baseline hazard scale (per year)
+  t_event <- (-log(runif(n)) / (lambda * exp(lp_death)))^(1 / shape)
+  t_admin   <- runif(n, 3, 8)          # study ends 3-8 years after entry
+  t_dropout <- rexp(n, rate = 0.04)
+  t_cens    <- pmin(t_admin, t_dropout)
+  time   <- pmin(t_event, t_cens)
+  status <- as.integer(t_event <= t_cens)
+  data.frame(
+    id       = seq_len(n),
+    age, female, diabetes, bmi, smoker,
+    treated,
+    time     = round(time, 3),
+    status
+  )
+}
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+```
+
+```{webr}
+#| exercise: ex_match
+#| caption: "Practice: matching with MatchIt"
+m <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+             data = cohort, method = "nearest",
+             link = "______",       # measure distances on the logit scale
+             caliper = ______)      # 0.2 SDs of the logit propensity score
+
+# Sample sizes before and after matching
+summary(m, un = FALSE)$nn
+
+# Balance table: flag any |SMD| above 0.1
+bal.tab(m, binary = "std", thresholds = c(m = ______))
+
+# Extract the matched data
+matched <- ______(m)
+nrow(matched)
+```
+
+::: {.hint exercise="ex_match"}
+::: {.callout-note collapse="false"}
+## Hint 1
+The logit-scale option is `"linear.logit"`. The caliper and the SMD threshold are numbers from this chapter: 0.2 and 0.1.
+:::
+:::
+
+::: {.hint exercise="ex_match"}
+::: {.callout-note collapse="false"}
+## Hint 2
+The function that extracts the matched data is `match.data()`.
+:::
+:::
+
+::: {.solution exercise="ex_match"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+m <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+             data = cohort, method = "nearest",
+             link = "linear.logit", caliper = 0.2)
+summary(m, un = FALSE)$nn
+bal.tab(m, binary = "std", thresholds = c(m = 0.1))
+matched <- match.data(m)
+nrow(matched)
+```
+
+714 treated patients were matched to 714 controls, so the matched data
+have 1428 rows. 135 treated patients had no control within the caliper.
+Every covariate is "Balanced, <0.1" after matching.
+:::
+:::
+
+```{webr}
+#| exercise: ex_match
+#| check: true
+env <- .envir_result
+m <- env$m
+if (!inherits(m, "matchit")) {
+  list(correct = FALSE, message = "Fill in the blanks in <code>matchit()</code> first, so that <code>m</code> is created.")
+} else if (!identical(m$info$link, "linear.logit")) {
+  list(correct = FALSE, message = "Use <code>link = \"linear.logit\"</code>, so distances are measured on the logit scale.")
+} else if (length(m$caliper) == 0 || abs(m$caliper[[1]] - 0.1692) > 0.001) {
+  list(correct = FALSE, message = "The caliper should be <code>0.2</code> (0.2 SDs of the logit propensity score).")
+} else if (!grepl("thresholds\\s*=\\s*c\\(\\s*m\\s*=\\s*0?\\.1\\s*\\)", .user_code)) {
+  list(correct = FALSE, message = "The SMD threshold in <code>bal.tab()</code> should be <code>0.1</code>.")
+} else if (!is.data.frame(env$matched) || nrow(env$matched) != 1428) {
+  list(correct = FALSE, message = "Extract the matched data with <code>match.data(m)</code>.")
+} else {
+  list(correct = TRUE, message = "Correct! 714 treated patients matched to 714 controls (1428 rows), and every covariate is balanced (|SMD| < 0.1).")
+}
+```
+
+:::: {.optional}
+::: {.callout-note collapse="true" icon="false"}
+## Going further (optional): other matching and weighting options
+- `ratio = 2`: up to 2 controls per treated patient. More precise, but
+  balance is sometimes a little worse.
+- `replace = TRUE`: controls can be reused. Better balance when good
+  controls are scarce, but you need weights in the analysis.
+- `method = "optimal"` or `"full"`: optimal pair matching, or full matching
+  (keeps everyone; can target the ATE). Needs the `optmatch` package.
+- `exact = ~ female`: force exact matches on key variables.
+- **Greedy vs optimal.** Greedy matching (the default) takes treated
+  patients one at a time, so early choices can "use up" controls that would
+  suit later patients better. Optimal matching minimises the *total*
+  distance across all pairs.
+- **Inverse probability of treatment weighting (IPTW)** with the `WeightIt`
+  package: no one is discarded, and it targets the ATE by default. Check
+  balance the same way with `cobalt`.
+- Use `distance = "gbm"` or other machine-learning PS models when the
+  treatment model is complicated.
+
+**For more**, with worked examples of IPTW, matching with replacement,
+exact and full matching, and how to choose between them, see
+@sec-weighting.
+:::
+::::
+
+## Quick quiz {.unnumbered}
+
+Choose an answer to each question. You'll get instant feedback and can change your answer as often as you like.
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "Why do we set <code>link = \"linear.logit\"</code> in <code>matchit()</code>?",
+  "options": [
+   "So distances and the caliper are measured on the logit scale, as recommended",
+   "To fit a linear regression instead of a logistic one",
+   "To match on the outcome",
+   "It's needed to get a balance table"
+  ],
+  "answer": 0,
+  "why": "Without it, matchit() measures distances (and the caliper) on the probability scale.",
+  "hints": [
+   "",
+   "The propensity score model is still logistic regression. Only the scale of the distances changes.",
+   "The outcome never plays a part in matching.",
+   "Balance tables work either way."
+  ]
+ },
+ {
+  "q": "In <code>summary(m_out)</code>, which column tells you whether matching balanced the covariates?",
+  "options": [
+   "Std. Mean Diff.",
+   "Means Treated",
+   "eCDF Max",
+   "Var. Ratio"
+  ],
+  "answer": 0,
+  "why": "Check that every standardised mean difference is close to 0, ideally below 0.1 in absolute value.",
+  "hints": [
+   "",
+   "The means on their own don't show the size of the difference on a common scale.",
+   "This compares distributions in a more technical way. Start with the SMDs.",
+   "Variance ratios are a useful extra check, but the SMD is the main one."
+  ]
+ },
+ {
+  "q": "What does the <code>subclass</code> column from <code>match.data()</code> record?",
+  "options": [
+   "Which matched pair each patient belongs to",
+   "Whether each patient was treated",
+   "Each patient's propensity score",
+   "Each patient's weight"
+  ],
+  "answer": 0,
+  "why": "It identifies the matched pairs. Chapter 7 uses it for robust standard errors that allow for the pairing.",
+  "hints": [
+   "",
+   "That's the <code>treated</code> column.",
+   "That's the <code>distance</code> column.",
+   "That's the <code>weights</code> column."
+  ]
+ },
+ {
+  "q": "A covariate was left out of the propensity score model. How can you check whether it is balanced after matching?",
+  "options": [
+   "Add it with <code>addl =</code> in <code>bal.tab()</code>",
+   "You can't check it",
+   "Look at the propensity score histogram",
+   "Refit the outcome model"
+  ],
+  "answer": 0,
+  "why": "bal.tab(m, addl = ~ variable) reports balance on variables that weren't in the propensity score model.",
+  "hints": [
+   "",
+   "You can: cobalt checks balance on any variable in the data.",
+   "Overlap of the scores doesn't tell you about a variable that isn't in the score.",
+   "Balance is about the design, before any outcome model."
+  ]
+ }
+])
+```
+
+## Exercise
+
+### Exercise 6.1
+
+The simulated `cohort` is already loaded in each box. Each part changes one
+matching choice and asks what happens. The parts are checked separately.
+
+#### Part 1: no caliper {.unnumbered}
+
+This is the matching from this chapter. **Remove the caliper**, then run
+it. How many treated patients are matched now, and how does balance
+compare?
+
+```{webr}
+#| setup: true
+#| exercise: ex_match_nocal
+for (pkg in c("MatchIt", "cobalt")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, quiet = TRUE)
+}
+library(MatchIt)
+library(cobalt)
+simulate_cohort <- function(n = 2000, hr_treat = 0.70, seed = 2026) {
+  set.seed(seed)
+  age      <- round(pmin(pmax(rnorm(n, 65, 10), 35), 95))
+  female   <- rbinom(n, 1, 0.45)
+  diabetes <- rbinom(n, 1, plogis(-1.4 + 0.04 * (age - 65)))
+  bmi      <- round(rnorm(n, 28, 4.5), 1)
+  smoker   <- rbinom(n, 1, 0.25)
+  lp_treat <- -0.6 + 0.06 * (age - 65) + 1.0 * diabetes + 0.08 * (bmi - 28) -
+    0.3 * female + 0.4 * smoker
+  treated <- rbinom(n, 1, plogis(lp_treat))
+  lp_death <- log(hr_treat) * treated + 0.06 * (age - 65) + 0.6 * diabetes +
+    0.03 * (bmi - 28) - 0.25 * female + 0.55 * smoker
+  shape  <- 1.2
+  lambda <- 0.05                       # baseline hazard scale (per year)
+  t_event <- (-log(runif(n)) / (lambda * exp(lp_death)))^(1 / shape)
+  t_admin   <- runif(n, 3, 8)          # study ends 3-8 years after entry
+  t_dropout <- rexp(n, rate = 0.04)
+  t_cens    <- pmin(t_admin, t_dropout)
+  time   <- pmin(t_event, t_cens)
+  status <- as.integer(t_event <= t_cens)
+  data.frame(
+    id       = seq_len(n),
+    age, female, diabetes, bmi, smoker,
+    treated,
+    time     = round(time, 3),
+    status
+  )
+}
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+```
+
+```{webr}
+#| exercise: ex_match_nocal
+#| caption: "Exercise 6.1, part 1: no caliper"
+m_nocal <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                   data = cohort, method = "nearest",
+                   link = "linear.logit", caliper = 0.2)
+
+summary(m_nocal, un = FALSE)$nn
+bal.tab(m_nocal, binary = "std", thresholds = c(m = 0.1))
+```
+
+::: {.hint exercise="ex_match_nocal"}
+::: {.callout-note collapse="false"}
+## Hint 1
+Delete `, caliper = 0.2` from the `matchit()` call (keep the closing bracket).
+:::
+:::
+
+::: {.solution exercise="ex_match_nocal"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+m_nocal <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                   data = cohort, method = "nearest",
+                   link = "linear.logit")
+summary(m_nocal, un = FALSE)$nn
+bal.tab(m_nocal, binary = "std", thresholds = c(m = 0.1))
+```
+
+Without a caliper, all 849 treated patients are matched (there are more
+controls than treated patients, so everyone finds *someone*). But the
+matches for the high-scoring treated patients are poor, and balance is much
+worse: age (SMD 0.25), diabetes (0.29) and BMI (0.15) are all still above
+0.1. Keeping everyone isn't worth it if the groups aren't comparable.
+:::
+:::
+
+```{webr}
+#| exercise: ex_match_nocal
+#| check: true
+m <- .envir_result$m_nocal
+if (!inherits(m, "matchit")) {
+  list(correct = FALSE, message = "Keep the model's name, <code>m_nocal</code>.")
+} else if (length(m$caliper) > 0) {
+  list(correct = FALSE, message = "Remove the <code>caliper</code> argument from <code>matchit()</code>.")
+} else if (!inherits(.result, "bal.tab")) {
+  list(correct = FALSE, message = "Make the balance table the last line.")
+} else {
+  list(correct = TRUE, message = "Correct! All 849 treated patients are matched, but age, diabetes and BMI now have |SMD| above 0.1. More patients, worse balance.")
+}
+```
+
+#### Part 2: two controls per treated patient {.unnumbered}
+
+Keep the caliper, but allow up to **2** controls for each treated patient
+(see the optional box on other matching options). What happens to the
+sample size and the balance?
+
+```{webr}
+#| setup: true
+#| exercise: ex_match_ratio
+for (pkg in c("MatchIt", "cobalt")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, quiet = TRUE)
+}
+library(MatchIt)
+library(cobalt)
+simulate_cohort <- function(n = 2000, hr_treat = 0.70, seed = 2026) {
+  set.seed(seed)
+  age      <- round(pmin(pmax(rnorm(n, 65, 10), 35), 95))
+  female   <- rbinom(n, 1, 0.45)
+  diabetes <- rbinom(n, 1, plogis(-1.4 + 0.04 * (age - 65)))
+  bmi      <- round(rnorm(n, 28, 4.5), 1)
+  smoker   <- rbinom(n, 1, 0.25)
+  lp_treat <- -0.6 + 0.06 * (age - 65) + 1.0 * diabetes + 0.08 * (bmi - 28) -
+    0.3 * female + 0.4 * smoker
+  treated <- rbinom(n, 1, plogis(lp_treat))
+  lp_death <- log(hr_treat) * treated + 0.06 * (age - 65) + 0.6 * diabetes +
+    0.03 * (bmi - 28) - 0.25 * female + 0.55 * smoker
+  shape  <- 1.2
+  lambda <- 0.05                       # baseline hazard scale (per year)
+  t_event <- (-log(runif(n)) / (lambda * exp(lp_death)))^(1 / shape)
+  t_admin   <- runif(n, 3, 8)          # study ends 3-8 years after entry
+  t_dropout <- rexp(n, rate = 0.04)
+  t_cens    <- pmin(t_admin, t_dropout)
+  time   <- pmin(t_event, t_cens)
+  status <- as.integer(t_event <= t_cens)
+  data.frame(
+    id       = seq_len(n),
+    age, female, diabetes, bmi, smoker,
+    treated,
+    time     = round(time, 3),
+    status
+  )
+}
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+```
+
+```{webr}
+#| exercise: ex_match_ratio
+#| caption: "Exercise 6.1, part 2: ratio = 2"
+m_r2 <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                data = cohort, method = "nearest",
+                link = "linear.logit", caliper = 0.2,
+                ratio = ______)
+
+summary(m_r2, un = FALSE)$nn
+bal.tab(m_r2, binary = "std", thresholds = c(m = 0.1))
+```
+
+::: {.hint exercise="ex_match_ratio"}
+::: {.callout-note collapse="false"}
+## Hint 1
+`ratio = 2` allows up to two controls per treated patient.
+:::
+:::
+
+::: {.solution exercise="ex_match_ratio"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+m_r2 <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                data = cohort, method = "nearest",
+                link = "linear.logit", caliper = 0.2,
+                ratio = 2)
+summary(m_r2, un = FALSE)$nn
+bal.tab(m_r2, binary = "std", thresholds = c(m = 0.1))
+```
+
+The same 714 treated patients are matched, now to 987 controls instead of
+714, so the analysis would be more precise. R warns that not every treated
+patient found 2 controls within the caliper. Every covariate is still
+balanced (|SMD| below 0.1), though balance is slightly worse than with 1:1
+matching: the SMD for age rises to 0.08, and the propensity score itself
+(`distance`) is just over the threshold, at 0.12. With a
+variable number of controls per patient, the matching **weights** are no
+longer all 1, so they must be used in the analysis (@sec-together).
+:::
+:::
+
+```{webr}
+#| exercise: ex_match_ratio
+#| check: true
+m <- .envir_result$m_r2
+if (!inherits(m, "matchit") || !isTRUE(m$info$ratio == 2)) {
+  list(correct = FALSE, message = "Set <code>ratio = 2</code> in <code>matchit()</code>.")
+} else if (length(m$caliper) == 0) {
+  list(correct = FALSE, message = "Keep the caliper: <code>caliper = 0.2</code>.")
+} else if (!inherits(.result, "bal.tab")) {
+  list(correct = FALSE, message = "Make the balance table the last line.")
+} else {
+  list(correct = TRUE, message = "Correct! 714 treated patients are matched to 987 controls, and every covariate still has |SMD| below 0.1. Remember to use the weights in the analysis.")
+}
+```
+
+#### Part 3: leave a confounder out {.unnumbered}
+
+**Remove `smoker`** from the propensity score model. Then check whether
+smoking is balanced after matching. Because `smoker` is no longer in the
+model, `bal.tab()` needs `addl = ~ smoker` to include it. Make the balance
+table the last line.
+
+```{webr}
+#| setup: true
+#| exercise: ex_match_nosmk
+for (pkg in c("MatchIt", "cobalt")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, quiet = TRUE)
+}
+library(MatchIt)
+library(cobalt)
+simulate_cohort <- function(n = 2000, hr_treat = 0.70, seed = 2026) {
+  set.seed(seed)
+  age      <- round(pmin(pmax(rnorm(n, 65, 10), 35), 95))
+  female   <- rbinom(n, 1, 0.45)
+  diabetes <- rbinom(n, 1, plogis(-1.4 + 0.04 * (age - 65)))
+  bmi      <- round(rnorm(n, 28, 4.5), 1)
+  smoker   <- rbinom(n, 1, 0.25)
+  lp_treat <- -0.6 + 0.06 * (age - 65) + 1.0 * diabetes + 0.08 * (bmi - 28) -
+    0.3 * female + 0.4 * smoker
+  treated <- rbinom(n, 1, plogis(lp_treat))
+  lp_death <- log(hr_treat) * treated + 0.06 * (age - 65) + 0.6 * diabetes +
+    0.03 * (bmi - 28) - 0.25 * female + 0.55 * smoker
+  shape  <- 1.2
+  lambda <- 0.05                       # baseline hazard scale (per year)
+  t_event <- (-log(runif(n)) / (lambda * exp(lp_death)))^(1 / shape)
+  t_admin   <- runif(n, 3, 8)          # study ends 3-8 years after entry
+  t_dropout <- rexp(n, rate = 0.04)
+  t_cens    <- pmin(t_admin, t_dropout)
+  time   <- pmin(t_event, t_cens)
+  status <- as.integer(t_event <= t_cens)
+  data.frame(
+    id       = seq_len(n),
+    age, female, diabetes, bmi, smoker,
+    treated,
+    time     = round(time, 3),
+    status
+  )
+}
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+```
+
+```{webr}
+#| exercise: ex_match_nosmk
+#| caption: "Exercise 6.1, part 3: leaving smoker out"
+m_nosmk <- matchit(treated ~ age + female + diabetes + bmi + smoker,
+                   data = cohort, method = "nearest",
+                   link = "linear.logit", caliper = 0.2)
+
+bal.tab(m_nosmk, addl = ~ ______, binary = "std", un = TRUE)
+```
+
+::: {.hint exercise="ex_match_nosmk"}
+::: {.callout-note collapse="false"}
+## Hint 1
+Delete `+ smoker` from the formula in `matchit()`.
+:::
+:::
+
+::: {.hint exercise="ex_match_nosmk"}
+::: {.callout-note collapse="false"}
+## Hint 2
+Then `addl = ~ smoker` adds smoking to the balance table.
+:::
+:::
+
+::: {.solution exercise="ex_match_nosmk"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+m_nosmk <- matchit(treated ~ age + female + diabetes + bmi,
+                   data = cohort, method = "nearest",
+                   link = "linear.logit", caliper = 0.2)
+bal.tab(m_nosmk, addl = ~ smoker, binary = "std", un = TRUE)
+```
+
+The four variables in the model are balanced, but smoking isn't: its SMD
+is 0.16 after matching, slightly *worse* than the 0.14 before. Nothing in
+the matching made smoking balance. Because smoking affects survival, the
+treatment effect estimate would be confounded. This is the measured
+version of the unmeasured-confounding problem from @sec-app-psm.
+:::
+:::
+
+```{webr}
+#| exercise: ex_match_nosmk
+#| check: true
+m <- .envir_result$m_nosmk
+if (!inherits(m, "matchit")) {
+  list(correct = FALSE, message = "Keep the model's name, <code>m_nosmk</code>.")
+} else if ("smoker" %in% all.vars(m$formula)) {
+  list(correct = FALSE, message = "Remove <code>smoker</code> from the propensity score formula.")
+} else if (!inherits(.result, "bal.tab") || !("smoker" %in% rownames(.result$Balance))) {
+  list(correct = FALSE, message = "Make the last line a balance table that includes smoking: <code>addl = ~ smoker</code>.")
+} else {
+  list(correct = TRUE, message = "Correct! Smoking is not balanced after matching (SMD 0.16, slightly worse than before). Leaving out a confounder means nothing balances it.")
+}
+```
+
+## Summary
+
+::: {.callout-important icon="false"}
+## Key points
+- `matchit()` estimates the propensity score and matches in one step. Use `link = "linear.logit"` so that distances and the caliper are on the logit scale.
+- The output shows how many patients were matched. Treated patients with no control within the caliper are dropped. Always report how many.
+- Check balance with `summary()` or `bal.tab()`: every |SMD| should be below 0.1. Love plots and distribution plots show the same thing visually.
+- `match.data()` returns the matched data, with `weights` and `subclass` (the matched pairs), ready for analysis.
+- Check balance **before** looking at any outcomes.
+:::
+
+**Answering the question.** `matchit()` matched 714 treated patients to 714
+controls. 135 treated patients had no control within the caliper. After
+matching, every covariate had |SMD| < 0.1, so the matched groups are
+comparable on all five measured confounders. Chapter 7 compares their
+survival.
+
+```{ojs}
+//| echo: false
+import {quiz} from "./js/survtools.js"
+```
+
+## Further reading
+
+All of these are free to read online unless marked otherwise. The whole
+book's reading list, grouped by topic, is in @sec-further-reading.
+
+- @matchit_vignette: **Start here.** A step-by-step guide to the R workflow used in this chapter, from the MatchIt package's author. The companion vignettes on estimating effects after matching, and the cobalt package's guide to balance, are also worth reading.
+- @stuart2010: *More advanced.* A thorough review of matching methods and the choices involved.
+

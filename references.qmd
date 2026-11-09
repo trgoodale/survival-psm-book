@@ -1,0 +1,28 @@
+# References {.unnumbered}
+
+::: {#refs}
+:::
+
+## Citing the software {.unnumbered}
+
+Cite the R packages you use, as well as R itself. Version numbers matter
+because results and defaults can change between versions. Each package
+supplies its own reference, and the version printed is the one you have
+installed:
+
+```r
+citation()               # R itself
+citation("survival")     # Kaplan-Meier, log-rank, Cox models
+citation("survminer")    # pairwise_survdiff()
+citation("ggsurvfit")    # KM plots
+citation("MatchIt")      # propensity score matching
+citation("cobalt")       # balance tables and Love plots
+sessionInfo()            # every package version, for your records
+```
+
+The **grateful** package can create a formatted list of package citations
+for a manuscript automatically: `grateful::cite_packages()`.
+
+## Further reading {.unnumbered}
+
+An annotated, topic-by-topic reading list is in @sec-further-reading.

@@ -1,0 +1,138 @@
+# R cheat sheet {#sec-cheatsheet}
+
+## Kaplan–Meier
+
+```r
+library(survival)
+library(ggsurvfit)
+
+Surv(time, status)                                  # status: 1 = event, 0 = censored
+fit <- survfit2(Surv(time, status) ~ group, data = df)
+fit                                                 # n, events, median (95% CI)
+summary(fit, times = c(365, 730))                   # survival at chosen times
+survdiff(Surv(time, status) ~ group, data = df)     # log-rank test
+
+# 3+ groups: omnibus test above, then...
+survminer::pairwise_survdiff(Surv(time, status) ~ group, data = df,
+                             p.adjust.method = "holm")             # pairwise (default is "BH"!)
+summary(coxph(Surv(time, status) ~ as.numeric(group), df))$sctest  # trend (ordered groups)
+
+ggsurvfit(fit) +                                    # KM plot, adding layers with +
+  add_confidence_interval() +
+  add_risktable() +
+  add_censor_mark() +
+  add_pvalue() +
+  add_quantile(y_value = 0.5)
+```
+
+## Cox regression
+
+```r
+m <- coxph(Surv(time, status) ~ x1 + x2 + factor(x3), data = df)
+summary(m)                                          # HR = exp(coef), CI, concordance
+broom::tidy(m, exponentiate = TRUE, conf.int = TRUE)
+
+cox.zph(m)                                          # proportional hazards check
+plot(cox.zph(m))                                    # ... and its plots
+coxph(Surv(time, status) ~ trt + strata(site), df)  # stratified Cox
+coxph(Surv(time, status) ~ pspline(age) + sex, df)  # non-linear covariate
+survfit(m, newdata = data.frame(...))               # predicted survival curves
+```
+
+## Traps: competing risks and time-varying covariates
+
+```r
+# Competing risks: event is a factor whose FIRST level is censoring
+df$event <- factor(df$event, levels = c("censored", "relapse", "death"))
+cif <- survfit(Surv(time, event) ~ group, data = df)   # cumulative incidence
+summary(cif, times = 5)                                # Pr(relapse), Pr(death)
+coxph(Surv(time, event == "relapse") ~ x, data = df)   # cause-specific Cox
+fg <- finegray(Surv(time, event) ~ x, data = df, etype = "relapse")
+coxph(Surv(fgstart, fgstop, fgstatus) ~ x, weights = fgwt, data = fg)  # Fine-Gray
+
+# Immortal time: landmark analysis at time L
+lm <- subset(df, time > L)                             # alive at the landmark
+lm$treated_by_L <- as.numeric(lm$treat_start < L)      # NA start = never treated
+survdiff(Surv(time - L, status) ~ treated_by_L, data = lm)
+
+# Immortal time: treatment as a time-varying covariate
+tv <- tmerge(df[, c("id", "time", "status")], df, id = id,
+             death = event(time, status), treated = tdc(treat_start))
+coxph(Surv(tstart, tstop, death) ~ treated, data = tv)
+
+# Non-proportional hazards: a separate HR before and after time c
+sp <- survSplit(Surv(time, status) ~ ., data = df, cut = c, episode = "period")
+coxph(Surv(tstart, time, status) ~ x:factor(period), data = sp)
+```
+
+## Propensity score matching
+
+```r
+library(MatchIt)
+library(cobalt)
+
+m_out <- matchit(treat ~ x1 + x2 + x3, data = df,
+                 method = "nearest", distance = "glm", link = "linear.logit",
+                 caliper = 0.2, ratio = 1, replace = FALSE)
+summary(m_out, un = FALSE)                          # balance + sample sizes
+bal.tab(m_out, binary = "std", thresholds = c(m = .1))
+love.plot(m_out, abs = TRUE, thresholds = c(m = .1))
+bal.plot(m_out, var.name = "distance", which = "both", mirror = TRUE, type = "histogram")
+
+md <- match.data(m_out)                             # matched data: weights, subclass
+coxph(Surv(time, status) ~ treat, data = md, weights = weights,
+      robust = TRUE, cluster = subclass)            # marginal HR with robust SE
+```
+
+## Going further: weighting, non-proportional hazards, missing data
+
+```r
+# IPTW (Chapter 9)
+library(WeightIt)
+W <- weightit(treat ~ x1 + x2 + x3, data = df, method = "glm", estimand = "ATE")
+summary(W)                                          # weight range, ESS
+bal.tab(W, binary = "std", thresholds = c(m = .1))
+coxph(Surv(time, status) ~ treat, data = df, weights = W$weights, robust = TRUE)
+
+# Other matching (Chapter 9): always use the weights afterwards
+matchit(treat ~ x1 + x2, data = df, replace = TRUE, caliper = 0.2)   # with replacement
+matchit(treat ~ x1 + x2, data = df, exact = ~ sex, caliper = 0.2)    # exact on sex
+matchit(treat ~ x1 + x2, data = df, method = "full", estimand = "ATE")  # needs optmatch
+
+# Non-proportional hazards (Chapter 10)
+coxph(Surv(time, status) ~ x + tt(x), data = df,
+      tt = function(x, t, ...) x * log(t))          # effect changes with log(time)
+survRM2::rmst2(df$time, df$status, arm = df$treat, tau = 2)   # RMST difference
+survreg(Surv(time, status) ~ x, data = df, dist = "weibull")  # AFT: exp(coef) = time ratio
+
+# Missing data (Chapter 11)
+library(mice)
+df$H <- nelsonaalen(df, time, status)               # include the outcome when imputing
+pred <- make.predictorMatrix(df)
+pred[, "time"] <- 0                                 # ... but not the raw time
+imp <- mice(df, m = 20, predictorMatrix = pred, seed = 1)
+fit <- with(imp, coxph(Surv(time, status) ~ treat + x1 + x2))
+summary(pool(fit), exponentiate = TRUE, conf.int = TRUE)
+mt <- MatchThem::matchthem(treat ~ x1 + x2, datasets = imp, approach = "within")
+```
+
+## Decision guide
+
+| Question | Tool |
+|---|---|
+| How does survival change over time? | Kaplan–Meier curve |
+| Do 2+ groups differ in survival? | Log-rank test (+ HR from Cox) |
+| Which of 3+ groups differ? | Pairwise log-rank with Holm adjustment; Cox HRs |
+| Does risk rise across ordered groups? | Log-rank test for trend |
+| Effect of several variables on hazard | Cox regression |
+| Is the HR constant over time? | `cox.zph()`, log(−log) plot |
+| HR not constant | Stratify, split time (`survSplit()`), `tt()`, RMST |
+| Are patients lost to follow-up different? | Compare their baseline characteristics with those who stayed |
+| Another event can stop the one you're studying | Cumulative incidence (`survfit()` with a factor event); cause-specific or Fine–Gray Cox |
+| Groups defined by something after time zero | Landmark analysis, or a time-varying covariate (`tmerge()`) |
+| Treatment effect from observational data | PS matching / IPTW, then KM & Cox on matched/weighted data |
+| Are groups comparable after matching? | SMDs < 0.1, Love plot, PS overlap |
+| Could an unmeasured confounder explain it? | E-value, sensitivity analyses |
+| Effect for the whole population, or keep every patient | IPTW (`WeightIt`), full matching (Chapter 9) |
+| Main exposure fails PH, or KM curves cross | Period-specific HRs, `tt()`, RMST, survival at fixed times (Chapter 10) |
+| Models drop patients with missing values | Multiple imputation with `mice`; `MatchThem` for matching (Chapter 11) |

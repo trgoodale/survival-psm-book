@@ -1,0 +1,140 @@
+# Shiny apps for open-ended exploration {#sec-shiny}
+
+The apps in the earlier chapters run in your browser. This chapter has two
+**Shiny** apps that run on your own computer, using the real R packages
+(`survival`, `ggsurvfit`, `MatchIt`, `cobalt`). They are for free
+exploration after the guided chapters.
+
+::: {.callout-note icon="false"}
+## In this chapter
+**By the end of this chapter you will be able to:**
+
+- download and run the two Shiny apps on your own computer;
+- use real datasets to practise KM curves, log-rank tests, Cox models and
+  proportional hazards checks;
+- compare matching, weighting and covariate adjustment on simulated data,
+  and see when each one struggles.
+:::
+
+## Running the apps
+
+1. Download the apps into your project folder (see @sec-setup):
+   - [survival-explorer.R](apps/survival-explorer/app.R){download="survival-explorer.R"}
+   - [psm-explorer.R](apps/psm-explorer/app.R){download="psm-explorer.R"}
+2. Make sure the packages are installed (see @sec-setup), including
+   `shiny`.
+3. Run an app from the RStudio console. It opens in a new window:
+
+```r
+shiny::runApp("survival-explorer.R")
+shiny::runApp("psm-explorer.R")
+```
+
+To stop an app, close its window and press **Esc** in the console (or click
+the red stop sign).
+
+## App 1: survival explorer
+
+[Download survival-explorer.R](apps/survival-explorer/app.R){download="survival-explorer.R"}
+
+Three real datasets from the `survival` package: `lung`, `veteran` (a
+randomised lung cancer trial) and `colon` (an adjuvant chemotherapy trial).
+
+- **Kaplan–Meier tab.** Choose a grouping variable. Toggle confidence
+  intervals, risk tables and the median. Shows the log-rank test.
+- **Cox model tab.** Choose any set of covariates. Shows a table of HRs and
+  a forest plot.
+- **PH check tab.** `cox.zph()` tests and Schoenfeld residual plots.
+
+::: {.callout-tip}
+## Suggested activities
+1. In `veteran`, compare the *treatment* groups by KM. Then fit a Cox model
+   with `treatment`, `celltype` and `karno`. Check PH. `karno` clearly
+   violates it. What would you do? (Hint: @sec-nonph-example.)
+2. In `colon`, compare `rx` arms. Is the Lev+5FU effect still there after
+   adjusting for `nodes` and `differ`? (It's a randomised trial, so it
+   should be.)
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Answers
+1. **veteran.** The KM curves for the two treatments cross and the log-rank
+   test is far from significant ($\chi^2 = 0.008$). In the Cox model, the
+   Test treatment HR is about 1.30, not significant. `cox.zph()` flags
+   **`karno`** (p < 0.001) and **`celltype`** (p ≈ 0.002). The effect of
+   performance status is strong early on and fades over time. Options are
+   `strata(celltype)` and a time-varying effect for `karno`, e.g. split
+   follow-up with `survSplit()` or use `tt(karno)`.
+2. **colon.** Without adjustment, Lev+5FU vs observation has HR ≈ 0.69
+   (95% CI 0.55–0.87), and levamisole alone has HR ≈ 0.97. Adjusting for
+   `nodes` and `differ` barely changes this (HR ≈ 0.67), as you'd expect in
+   a randomised trial. Adjustment can improve precision, but it shouldn't
+   move the estimate much. (`differ` shows some evidence of non-PH. Worth a
+   look in the PH tab.)
+:::
+
+## App 2: propensity score explorer
+
+[Download psm-explorer.R](apps/psm-explorer/app.R){download="psm-explorer.R"}
+
+Simulates the observational cohort from Chapters 5–7, with adjustable
+sample size, true HR and **strength of confounding**. You can then:
+
+- choose which confounders go into the PS model (leave one out to create an
+  *unmeasured confounder*);
+- choose **1:k nearest-neighbour matching** (ratio, replacement, caliper)
+  or **inverse probability weighting**;
+- see balance (Love plot and PS distributions) for *all* true confounders,
+  matched or weighted KM curves, and a comparison of HRs from the naive
+  analysis, full covariate adjustment and the PS method, against the truth.
+
+::: {.callout-tip}
+## Suggested activities
+1. Set confounding to 3. Compare 1:1 matching with no caliper, 1:1 with a
+   0.2 caliper, and IPTW. Look at balance, sample size (or effective sample
+   size) and the HR.
+2. Untick `age`. Age is the strongest confounder, so balance on age
+   collapses and every PS estimate is biased.
+3. Set the true HR to 1 and confounding to 2. How wrong is the naive
+   analysis?
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Answers
+With the default seed (2026), true HR 0.7:
+
+1. **Confounding = 3.** The naive HR is about 1.75. With 1:1 matching and
+   no caliper, every treated patient is matched, but the |SMD| for age is
+   still about 1.0. The matched HR is about 1.65, barely better than the
+   naive one. With the 0.2 caliper, only 468 of 972 treated patients are
+   kept. Balance is much better, though age is still just over the
+   threshold (SMD ≈ 0.11). The HR is about 0.83, still a bit biased. IPTW
+   also gives about 0.83, but the largest weight
+   is about 60 and the effective sample size falls to roughly a third.
+   **When the groups barely overlap, every method struggles.** Full
+   covariate adjustment (0.74) does best here because the outcome model is
+   correctly specified, which you can never guarantee in real data.
+2. **Untick `age`** (confounding = 1). Age is no longer balanced, and the
+   matched HR jumps to about 0.98, so the benefit disappears completely.
+3. **True HR = 1, confounding = 2.** The naive HR is about 2.0, which looks
+   like a doubling of risk from a treatment that does nothing. The matched
+   estimate is about 1.02, close to the truth.
+:::
+
+:::: {.optional}
+::: {.callout-note collapse="true" icon="false"}
+## Going further (optional, for instructors): running a Shiny app in the browser
+Shiny apps can also run with no R installed, using
+[shinylive](https://posit-dev.github.io/r-shinylive/) and webR. Put the
+downloaded file in its own folder, renamed to `app.R`. Then run:
+
+```r
+# install.packages("shinylive")
+shinylive::export("survival-explorer", "site/survival-explorer")
+httpuv::runStaticServer("site/survival-explorer")
+```
+
+Not every CRAN package is available in webR, so test the app before you rely
+on it.
+:::
+::::

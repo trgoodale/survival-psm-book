@@ -1,0 +1,731 @@
+---
+format:
+  live-html:
+    webr:
+      packages:
+        - survival
+---
+
+# When proportional hazards fail {#sec-nonph}
+
+```{r}
+#| label: setup-ch10
+#| include: false
+library(survival)
+library(ggsurvfit)
+library(survRM2)
+library(dplyr)
+library(ggplot2)
+```
+
+{{< include ./_extensions/r-wasm/live/_knitr.qmd >}}
+
+::: {.callout-tip icon="false"}
+## You need this chapter if…
+- `cox.zph()` flags your **main exposure** (treatment, say), not just a covariate;
+- the Kaplan–Meier curves **cross**, or come together and then separate;
+- you expect the effect to change over time: an operation with early risks and later benefits, or a test result that predicts the near future better than the distant one.
+
+If the problem is only with a covariate you're adjusting for, stratifying on it (@sec-ph-check) is usually enough.
+
+*This chapter builds on Chapter 3.*
+:::
+
+::: {.callout-note icon="false"}
+## In this chapter
+**The question.** When the hazard ratio isn't constant, a single HR can be badly misleading. What should you report instead?
+
+**By the end of this chapter you will be able to:**
+
+- recognise when non-proportional hazards matter, and when they don't;
+- estimate a separate HR for each period of follow-up, and an HR that changes smoothly over time with `tt()`;
+- estimate and interpret the **restricted mean survival time (RMST)**, and explain why the choice of time horizon matters;
+- interpret an **accelerated failure time** model's time ratio.
+:::
+
+## First: does it matter?
+
+Chapter 3 showed how to check the proportional hazards assumption. Before
+changing your analysis, ask two questions.
+
+**Which variable fails?** If it's a covariate you're only adjusting for,
+**stratify** on it: each level gets its own baseline hazard, the variable
+gets no HR, and the HRs you care about are unaffected (Exercise 3.1 did
+this for ECOG). If a continuous covariate fails, split it into groups and
+stratify, or use the methods below. Problems with the **main exposure**
+need more thought, because they change what you can report.
+
+**How badly does it fail?** With a lot of data, `cox.zph()` can flag
+tiny, unimportant changes. Always look at the plot. If the line is roughly
+flat, with small wiggles, a single HR is a fair summary. If it clearly
+changes direction or size, a single HR misleads.
+
+## A treatment whose effect reverses
+
+Here's a simulated trial where it matters. 800 patients are randomised to
+**surgery** or **medical treatment**. Surgery carries early risks: for the
+first 6 months the hazard of death is **twice** as high. After that, it's
+**half** as high. (The code is folded away; open it if you're interested.)
+
+```{r}
+#| label: nonph-trial
+#| code-fold: true
+#| code-summary: "Show the simulation code"
+set.seed(2027)
+n <- 800
+surgery <- rep(0:1, each = n / 2)          # 400 medical (0), 400 surgery (1)
+u  <- runif(n)
+h0 <- 0.4                                   # medical: constant hazard, 0.4 per year
+
+# Surgery: twice the hazard for 6 months, then half the hazard
+t_medical <- -log(u) / h0
+t_surgery <- ifelse(-log(u) < 2 * h0 * 0.5,
+                    -log(u) / (2 * h0),
+                    0.5 + (-log(u) - 2 * h0 * 0.5) / (0.5 * h0))
+
+t_event <- ifelse(surgery == 1, t_surgery, t_medical)
+t_cens  <- runif(n, 2, 5)                   # follow-up ends 2-5 years after entry
+
+trial <- data.frame(
+  surgery = surgery,
+  time    = pmin(t_event, t_cens),
+  status  = as.numeric(t_event <= t_cens)
+)
+```
+
+```{r}
+#| label: fig-nonph-km
+#| fig-cap: "Kaplan–Meier curves for the simulated trial. Surgery does worse at first, then better: the curves cross at about 1.8 years."
+#| fig-height: 4
+survfit2(Surv(time, status) ~ surgery, data = trial) |>
+  ggsurvfit(linewidth = 1) +
+  add_risktable(risktable_stats = "n.risk") +
+  scale_ggsurvfit() +
+  labs(x = "Years")
+```
+
+The standard analysis:
+
+```{r}
+#| label: nonph-naive
+survdiff(Surv(time, status) ~ surgery, data = trial)
+
+cox_naive <- coxph(Surv(time, status) ~ surgery, data = trial)
+summary(cox_naive)$conf.int
+cox.zph(cox_naive)
+```
+
+The log-rank test (p = 0.2) and the Cox model (HR 0.89, 95% CI 0.76 to
+1.06) both say "no clear difference". That's badly misleading: surgery
+**doubles** the early hazard and **halves** the later one. The two effects
+cancel out in a single number. `cox.zph()` flags the problem strongly
+(p < 0.001). Here are the alternatives.
+
+## Option 1: a separate HR for each period
+
+You met this in @sec-nonph-example. Split follow-up at a time chosen from
+the plot, or from clinical knowledge, and estimate an HR for each period:
+
+```{r}
+#| label: nonph-split
+trial_split <- survSplit(Surv(time, status) ~ ., data = trial,
+                         cut = 0.5, episode = "period")
+trial_split$period <- factor(trial_split$period, levels = 1:2,
+                             labels = c("first 6 months",
+                                        "after 6 months"))
+
+cox_period <- coxph(Surv(tstart, time, status) ~ surgery:period,
+                    data = trial_split)
+summary(cox_period)$conf.int
+```
+
+In the first 6 months, surgery more than doubles the hazard (HR 2.21, 95%
+CI 1.65 to 2.95). After 6 months it halves it (HR 0.52, 0.42 to 0.65). Those
+are close to the true values we built in (2 and 0.5), and
+`cox.zph(cox_period)` shows no remaining problem. This is easy to explain, but it needs a sensible cut point, chosen
+**before** looking at p-values.
+
+### Practice: a separate HR for each period
+
+*This is a live exercise: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used one before.*
+
+The simulated surgery `trial` is loaded. Split follow-up at **1 year**
+instead of 6 months, and estimate the surgery HR in each period. Replace
+each `______`, then click **Run Code**.
+
+```{webr}
+#| setup: true
+#| exercise: ex_split
+library(survival)
+set.seed(2027)
+n <- 800
+surgery <- rep(0:1, each = n / 2)          # 400 medical (0), 400 surgery (1)
+u  <- runif(n)
+h0 <- 0.4                                   # medical: constant hazard, 0.4 per year
+
+# Surgery: twice the hazard for 6 months, then half the hazard
+t_medical <- -log(u) / h0
+t_surgery <- ifelse(-log(u) < 2 * h0 * 0.5,
+                    -log(u) / (2 * h0),
+                    0.5 + (-log(u) - 2 * h0 * 0.5) / (0.5 * h0))
+
+t_event <- ifelse(surgery == 1, t_surgery, t_medical)
+t_cens  <- runif(n, 2, 5)                   # follow-up ends 2-5 years after entry
+
+trial <- data.frame(
+  surgery = surgery,
+  time    = pmin(t_event, t_cens),
+  status  = as.numeric(t_event <= t_cens)
+)
+rm(n, surgery, u, h0, t_medical, t_surgery, t_event, t_cens)
+```
+
+```{webr}
+#| exercise: ex_split
+#| caption: "Practice: a separate HR for each period"
+trial_split <- survSplit(Surv(time, status) ~ ., data = trial,
+                         cut = ______, episode = "period")
+trial_split$period <- factor(trial_split$period, levels = 1:2,
+                             labels = c("first year", "after 1 year"))
+
+cox_period <- coxph(Surv(______, time, status) ~ surgery:period,
+                    data = trial_split)
+summary(cox_period)$conf.int
+```
+
+::: {.hint exercise="ex_split"}
+::: {.callout-note collapse="false"}
+## Hint 1
+Time is in years, so 1 year is `cut = 1`.
+:::
+:::
+
+::: {.hint exercise="ex_split"}
+::: {.callout-note collapse="false"}
+## Hint 2
+After splitting, each row runs from `tstart` to `time`: `Surv(tstart, time, status)`.
+:::
+:::
+
+::: {.solution exercise="ex_split"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+trial_split <- survSplit(Surv(time, status) ~ ., data = trial,
+                         cut = 1, episode = "period")
+trial_split$period <- factor(trial_split$period, levels = 1:2,
+                             labels = c("first year", "after 1 year"))
+cox_period <- coxph(Surv(tstart, time, status) ~ surgery:period,
+                    data = trial_split)
+summary(cox_period)$conf.int
+```
+
+With the split at 1 year, the first period mixes the harmful first 6
+months with 6 months of benefit, so its HR is smaller (about 1.4) than the
+true early HR of 2. The HR after 1 year (about 0.5) matches the true later
+effect. A cut point in the wrong place blurs the picture, which is why it
+should come from the plot or from clinical knowledge.
+:::
+:::
+
+```{webr}
+#| exercise: ex_split
+#| check: true
+m <- .envir_result$cox_period
+if (!inherits(m, "coxph") || length(coef(m)) != 2) {
+  list(correct = FALSE, message = "Fit <code>coxph(Surv(tstart, time, status) ~ surgery:period, data = trial_split)</code>.")
+} else if (!any(abs(.envir_result$trial_split$tstart - 1) < 1e-8)) {
+  list(correct = FALSE, message = "Split follow-up at 1 year: <code>cut = 1</code>.")
+} else {
+  hr <- exp(coef(m))
+  list(correct = TRUE, message = sprintf("Correct! HR %.2f in the first year and %.2f after it. The first-year HR mixes early harm with later benefit.", hr[1], hr[2]))
+}
+```
+
+## Option 2: an HR that changes smoothly over time
+
+Sometimes an effect fades gradually rather than switching at one moment.
+The `tt()` ("time transform") argument in `coxph()` lets the log-HR change
+with time, for example in proportion to log(time).
+
+The real `veteran` lung cancer trial is a classic example. The Karnofsky
+performance score strongly predicts survival, but `cox.zph()` shows its
+effect changes:
+
+```{r}
+#| label: nonph-veteran
+vet <- survival::veteran
+cox.zph(coxph(Surv(time, status) ~ trt + karno, data = vet))
+```
+
+So we let the Karnofsky effect change with log(time):
+
+```{r}
+#| label: nonph-tt
+cox_tt <- coxph(Surv(time, status) ~ trt + karno + tt(karno),
+                data = vet,
+                tt = function(x, t, ...) x * log(t))
+summary(cox_tt)$coefficients
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+- `karno` and `tt(karno)` together describe the effect of the score. The
+  log-HR per point at time $t$ is `karno` + `tt(karno)` × log($t$).
+- `tt(karno)` is **positive** (p = 0.002), so the protective effect of a
+  higher score gets weaker as time goes on.
+:::
+
+The numbers are hard to read on their own, so calculate the HR at a few
+times, per 10 points of the score:
+
+```{r}
+#| label: nonph-tt-hr
+b <- coef(cox_tt)
+days <- c(7, 30, 90, 180, 365)
+hr_10 <- exp(10 * (b["karno"] + b["tt(karno)"] * log(days)))
+data.frame(days = days, hr_per_10_points = round(hr_10, 2))
+```
+
+A 10-point higher score goes with a 44% lower hazard in the first week
+(HR 0.56), but only a 5% lower hazard at a year (HR 0.95). That's the same
+story as `ph.karno` in Chapter 3: a doctor's rating of how well a patient
+is now predicts the near future much better than the distant future.
+
+The functional form (here log time) is a choice you make, so check it
+against the `cox.zph()` plot. The survival package's guide to
+time-dependent covariates [@survival_timedep] covers `tt()` in more
+detail.
+
+## Option 3: the restricted mean survival time
+
+The **restricted mean survival time (RMST)** avoids hazards altogether. It
+is the **average survival time up to a chosen time horizon**, $\tau$
+("tau"). For example, "over the first 2 years, patients survived for 1.40
+years on average". It equals the **area under the KM curve** up to
+$\tau$:
+
+```{r}
+#| label: fig-rmst-area
+#| fig-cap: "The RMST up to 2 years is the shaded area under each KM curve. The difference in RMST is the difference between the two areas."
+#| fig-height: 3.5
+#| code-fold: true
+#| code-summary: "Show the plotting code"
+km_trial <- survfit(Surv(time, status) ~ surgery, data = trial)
+
+# Survival on a fine grid of times up to 2 years, for shading
+grid <- summary(km_trial, times = seq(0, 2, by = 0.005), extend = TRUE)
+stairs <- data.frame(
+  time = grid$time,
+  surv = grid$surv,
+  arm  = ifelse(grid$strata == "surgery=1", "Surgery", "Medical")
+)
+
+ggplot(stairs, aes(time, surv, fill = arm, colour = arm)) +
+  geom_area(alpha = 0.25, position = "identity") +
+  geom_line(linewidth = 0.8) +
+  facet_wrap(~ arm) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  scale_colour_manual(values = c("#E69F00", "#0072B2")) +
+  coord_cartesian(xlim = c(0, 2), ylim = c(0, 1)) +
+  labs(x = "Years", y = "Survival probability") +
+  theme_minimal(base_size = 13) +
+  theme(legend.position = "none")
+```
+
+The **survRM2** package compares two groups' RMSTs:
+
+```{r}
+#| label: nonph-rmst
+rmst_2y <- rmst2(time = trial$time, status = trial$status,
+                 arm = trial$surgery, tau = 2)
+rmst_2y
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+- **RMST** for each arm (`arm=1` is surgery, `arm=0` medical): the average
+  survival time, in years, over the first 2 years, with a 95% CI.
+- **RMST (arm=1)-(arm=0)**: the difference. This is usually the number to
+  report.
+- The ratio of RMSTs, and the RMTL rows (restricted mean time *lost*), are
+  other ways of summarising the same thing.
+:::
+
+Over the first 2 years, surgery patients survived on average 0.15 years
+(about 54 days) **less** than medical patients (95% CI 0.04 to 0.25 years
+less). But the answer depends on the horizon you choose:
+
+| Time horizon $\tau$ | RMST, medical | RMST, surgery | Difference (surgery − medical) |
+|---|---|---|---|
+| 1 year | 0.83 | 0.72 | −0.11 years |
+| 2 years | 1.40 | 1.26 | −0.15 years |
+| 4 years | 2.03 | 2.03 | 0.00 years |
+
+By 4 years, the later benefit of surgery has exactly made up for the early
+losses. All three answers are correct: they answer different questions.
+That's why $\tau$ must be **chosen in advance**, for a clinical reason (the
+length of time that matters to patients, or the follow-up most patients
+completed), and not picked afterwards to give the most interesting
+result.
+
+### Interactive app: choosing the time horizon
+
+In this app you move $\tau$ and watch the RMSTs change. With the default
+settings, it uses exactly the trial above, so the numbers match the
+table. Changing the effect settings, or the seed, simulates a new trial. The bottom plot shows the RMST
+difference for **every** possible $\tau$, with your choice marked.
+
+::: {.app}
+```{ojs}
+//| echo: false
+import {simSwitch, rmst} from "./js/extras.js"
+import {kmFit} from "./js/survtools.js"
+formGrid = inputs => html`<div class="form-grid">${Object.values(inputs)}</div>`
+```
+
+```{ojs}
+//| echo: false
+viewof rmScen = Inputs.radio(["Default", "No early harm (HR 0.5 throughout)", "Smaller late benefit (HR 0.8)", "Early harm lasts a year"], {value: "Default", label: "Scenario"})
+rmP = ({"Default": {}, "No early harm (HR 0.5 throughout)": {"early": 0.5}, "Smaller late benefit (HR 0.8)": {"late": 0.8}, "Early harm lasts a year": {"cut": 1}})[rmScen]
+viewof rm = Inputs.form({
+  tau:   Inputs.range([0.25, 4.5], {value: rmP.tau ?? 2, step: 0.25, label: "Time horizon τ (years)"}),
+  early: Inputs.range([0.3, 3], {value: rmP.early ?? 2, step: 0.1, label: "HR for surgery, early period"}),
+  late:  Inputs.range([0.3, 3], {value: rmP.late ?? 0.5, step: 0.1, label: "HR for surgery, later"}),
+  cut:   Inputs.range([0.25, 2], {value: rmP.cut ?? 0.5, step: 0.25, label: "Early period lasts (years)"}),
+  seed:  Inputs.range([1, 100], {value: rmP.seed ?? 1, step: 1, label: "Random seed (new study)"})
+}, {template: formGrid})
+```
+
+```{ojs}
+//| echo: false
+rmTrial = FileAttachment("data/surgery_trial.csv").csv({typed: true})
+rmIsDefault = rm.early === 2 && rm.late === 0.5 && rm.cut === 0.5 && rm.seed === 1
+rmData = rmIsDefault
+  ? rmTrial.map(d => ({arm: d.surgery, time: d.time, status: d.status}))
+  : simSwitch({n: 800, h0: 0.4, hrEarly: rm.early, hrLate: rm.late, cut: rm.cut, seed: rm.seed})
+rmFits = [0, 1].map(a => kmFit(rmData.filter(d => d.arm === a).map(d => d.time), rmData.filter(d => d.arm === a).map(d => d.status)))
+rmCurve = {
+  const out = [];
+  for (let t = 0.25; t <= 4.5001; t += 0.05) out.push({tau: t, diff: rmst(rmFits[1], t) - rmst(rmFits[0], t)});
+  return out;
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const r0 = rmst(rmFits[0], rm.tau), r1 = rmst(rmFits[1], rm.tau), d = r1 - r0;
+  const shade = [];
+  for (const [a, lab] of [[0, "Medical"], [1, "Surgery"]]) {
+    let s = 1, j = 0; const f = rmFits[a];
+    for (let t = 0; t <= rm.tau + 1e-9; t += rm.tau / 300) {
+      while (j < f.length && f[j].time <= t) { s = f[j].surv; j++; }
+      shade.push({time: t, surv: s, arm: lab});
+    }
+  }
+  const lines = rmFits.flatMap((f, a) => f.filter(r => r.time <= 4.5).map(r => ({...r, arm: a ? "Surgery" : "Medical"})));
+  const top = Plot.plot({
+    height: 280, y: {domain: [0, 1], grid: true, label: "Survival probability"}, x: {label: "Years →", domain: [0, 4.5]},
+    color: {legend: true, domain: ["Medical", "Surgery"], range: ["#E69F00", "#0072B2"]},
+    marks: [
+      Plot.areaY(shade, {x: "time", y1: 0, y2: "surv", fill: "arm", fillOpacity: 0.15, curve: "step-after"}),
+      Plot.line(lines, {x: "time", y: "surv", stroke: "arm", strokeWidth: 2, curve: "step-after"}),
+      Plot.ruleX([rm.tau], {stroke: "#333", strokeDasharray: "4,3"})
+    ]
+  });
+  const bottom = Plot.plot({
+    height: 200, x: {label: "Time horizon τ (years) →", domain: [0, 4.5]}, y: {label: "RMST difference (years)", grid: true},
+    marks: [
+      Plot.ruleY([0], {stroke: "#888"}),
+      Plot.line(rmCurve, {x: "tau", y: "diff", stroke: "#333", strokeWidth: 2}),
+      Plot.dot([{tau: rm.tau, diff: d}], {x: "tau", y: "diff", fill: d < 0 ? "#D55E00" : "#009E73", r: 6})
+    ]
+  });
+  const sign = v => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
+  return html`<div>${top}
+  <div class="estimates">
+  <div class="est"><span>RMST, medical (to ${rm.tau} y)</span><b>${r0.toFixed(2)} y</b><small>&nbsp;</small></div>
+  <div class="est"><span>RMST, surgery (to ${rm.tau} y)</span><b>${r1.toFixed(2)} y</b><small>&nbsp;</small></div>
+  <div class="est ${d < 0 ? "bad" : "good"}"><span>Difference (surgery − medical)</span><b>${sign(d)} y</b><small>about ${Math.round(Math.abs(d) * 365)} days ${d < 0 ? "less" : "more"}</small></div>
+  </div>${bottom}</div>`;
+}
+```
+:::
+
+::: {.callout-tip}
+## Things to try
+For each one, **predict first**, then pick the scenario and check.
+
+1. On the **Default** scenario, move $\tau$ from 0.5 to 4.5 years.
+   **Predict:** at what horizon does surgery stop looking worse?
+2. **Predict:** what does the bottom plot look like if surgery has no early
+   harm? *Then* pick **No early harm (HR 0.5 throughout)**.
+3. **Predict:** if the later benefit is smaller, will surgery ever catch up
+   within 4.5 years? *Then* pick **Smaller late benefit (HR 0.8)**, and then
+   **Early harm lasts a year**.
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Answers: what you should see
+1. The difference starts negative (surgery patients lose time early:
+   −0.11 years at 1 year and −0.15 at 2 years), shrinks (−0.09 at 3 years),
+   and crosses zero at 4 years. By 4.5 years surgery is ahead (+0.07). The shaded areas
+   show why: the early gap in the curves is eventually outweighed by the
+   later one. This is why τ must be chosen in advance.
+2. The difference is positive at every horizon, and grows steadily (+0.25
+   years at 2 years, +0.72 at 4). When hazards are proportional, the RMST
+   and the HR tell the same story, and the choice of τ only changes the size
+   of the benefit, not its direction.
+3. **No.** With a later HR of 0.8, surgery never catches up within 4.5 years
+   (−0.22 years at 4 years). If the early harm lasts a year, it doesn't either
+   (−0.34 at 4 years). Whether surgery is "worth it" depends on how big and
+   how long-lasting each effect is, and on the time horizon that matters to
+   patients.
+:::
+
+### Practice: RMST at 3 years
+
+*This is a live exercise: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used one before.*
+
+Compare the two arms' RMSTs over the first **3 years**. The first run
+downloads the survRM2 package. Replace each `______`, then click **Run Code**.
+
+```{webr}
+#| setup: true
+#| exercise: ex_rmst
+if (!requireNamespace("survRM2", quietly = TRUE)) install.packages("survRM2", quiet = TRUE)
+library(survRM2)
+library(survival)
+set.seed(2027)
+n <- 800
+surgery <- rep(0:1, each = n / 2)          # 400 medical (0), 400 surgery (1)
+u  <- runif(n)
+h0 <- 0.4                                   # medical: constant hazard, 0.4 per year
+
+# Surgery: twice the hazard for 6 months, then half the hazard
+t_medical <- -log(u) / h0
+t_surgery <- ifelse(-log(u) < 2 * h0 * 0.5,
+                    -log(u) / (2 * h0),
+                    0.5 + (-log(u) - 2 * h0 * 0.5) / (0.5 * h0))
+
+t_event <- ifelse(surgery == 1, t_surgery, t_medical)
+t_cens  <- runif(n, 2, 5)                   # follow-up ends 2-5 years after entry
+
+trial <- data.frame(
+  surgery = surgery,
+  time    = pmin(t_event, t_cens),
+  status  = as.numeric(t_event <= t_cens)
+)
+rm(n, surgery, u, h0, t_medical, t_surgery, t_event, t_cens)
+```
+
+```{webr}
+#| exercise: ex_rmst
+#| caption: "Practice: RMST at 3 years"
+rmst_3y <- rmst2(time = trial$time, status = trial$status,
+                 arm = trial$______, tau = ______)
+rmst_3y
+```
+
+::: {.hint exercise="ex_rmst"}
+::: {.callout-note collapse="false"}
+## Hint 1
+The arm variable is `surgery`, and the horizon is `tau = 3` (years).
+:::
+:::
+
+::: {.solution exercise="ex_rmst"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+rmst_3y <- rmst2(time = trial$time, status = trial$status,
+                 arm = trial$surgery, tau = 3)
+rmst_3y
+```
+
+Over the first 3 years, surgery patients survived on average 1.69 years,
+and medical patients 1.78 years: a difference of −0.09 years (95% CI −0.25
+to 0.07). By 3 years the later benefit has made up most of the early
+losses, so the difference is small and not significant, between the 1- and
+4-year results in the table above.
+:::
+:::
+
+```{webr}
+#| exercise: ex_rmst
+#| check: true
+r <- .result
+if (!inherits(r, "rmst2")) {
+  list(correct = FALSE, message = "Make the last line the <code>rmst2()</code> result, <code>rmst_3y</code>.")
+} else if (r$tau != 3) {
+  list(correct = FALSE, message = "Use a 3-year horizon: <code>tau = 3</code>.")
+} else {
+  d <- r$unadjusted.result[1, 1]
+  list(correct = TRUE, message = sprintf("Correct! Difference in RMST over 3 years: %.2f years. The later benefit has made up most of the early losses.", d))
+}
+```
+
+## Option 4: survival at fixed times
+
+The simplest absolute measure, from Chapter 2, also works whatever the
+hazards do:
+
+```{r}
+#| label: nonph-fixed
+km_trial <- survfit(Surv(time, status) ~ surgery, data = trial)
+s <- summary(km_trial, times = c(0.5, 4))
+data.frame(arm = s$strata, years = s$time, survival = round(s$surv, 2))
+```
+
+At 6 months, 83% of medical patients but only 66% of surgery patients were
+alive. At 4 years, it's 20% versus 31%. Reporting both, alongside the KM
+curves, tells the story clearly.
+
+## Option 5: accelerated failure time models
+
+A different kind of regression model describes effects on **survival time**
+rather than on the hazard. An **accelerated failure time (AFT)** model
+estimates a **time ratio**: how many times longer (or shorter) one group's
+survival times are. `survreg()` in the survival package fits them. Here it
+is for sex in the `lung` data from Chapters 1–3:
+
+```{r}
+#| label: nonph-aft
+lung <- survival::lung
+lung$status <- lung$status - 1
+lung$sex <- factor(lung$sex, levels = 1:2, labels = c("Male", "Female"))
+
+aft <- survreg(Surv(time, status) ~ sex, data = lung, dist = "weibull")
+exp(coef(aft))[2]          # time ratio, women vs men
+exp(confint(aft))[2, ]     # its 95% CI
+```
+
+Women's survival times are about 1.49 times as long as men's (95% CI 1.16
+to 1.91). Many people find "women lived about 50% longer" easier to grasp
+than "women had a 41% lower hazard".
+
+AFT models make their own assumption: that the time ratio is the same
+throughout follow-up, and that survival times follow the chosen
+distribution (here Weibull). So they're an *alternative* effect measure, not
+a cure for crossing curves like those in the surgery trial.
+
+## Choosing an approach
+
+| Situation | Suggested approach |
+|---|---|
+| A covariate you're adjusting for fails PH | Stratify on it |
+| The effect switches at a clear time | A separate HR for each period |
+| The effect fades or grows gradually | `tt()`, checked against the `cox.zph()` plot |
+| You want one summary that doesn't depend on PH | RMST at a pre-specified $\tau$, plus survival at fixed times |
+| You'd like to describe effects on survival time | An AFT model (time ratio) |
+
+Whatever you choose, **show the KM curves**: they tell the reader what is
+happening, whichever summary you report alongside them.
+
+## Quick quiz {.unnumbered}
+
+Choose an answer to each question. You'll get instant feedback and can change your answer as often as you like.
+
+```{ojs}
+//| echo: false
+import {quiz} from "./js/survtools.js"
+```
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "<code>cox.zph()</code> flags age, a covariate you're adjusting for, but not the treatment. What is usually the simplest fix?",
+  "options": [
+   "Stratify on age groups",
+   "Report the RMST instead of the treatment HR",
+   "Drop age from the model",
+   "Ignore it: only the treatment matters"
+  ],
+  "answer": 0,
+  "why": "Stratifying on a covariate gives each stratum its own baseline hazard. The treatment HR is unaffected, and you don't need an HR for age.",
+  "hints": [
+   "",
+   "The treatment HR is fine here. The problem is only with a covariate.",
+   "Age is a confounder, so it needs to stay in.",
+   "A badly modelled covariate can still distort the treatment estimate."
+  ]
+ },
+ {
+  "q": "KM curves cross at 2 years, and the overall Cox HR is 0.95 (p = 0.6). What can you conclude?",
+  "options": [
+   "The treatment has no effect",
+   "A single HR may hide opposite effects before and after the crossing",
+   "The Cox model is wrong, so the data can't be analysed",
+   "The treatment is slightly beneficial throughout"
+  ],
+  "answer": 1,
+  "why": "Opposite effects in different periods can cancel out in a single HR. Look at period-specific HRs, the RMST and survival at fixed times.",
+  "hints": [
+   "A single HR near 1 can come from effects that cancel out.",
+   "",
+   "There are several good alternatives to a single HR.",
+   "Crossing curves mean the effect isn't the same throughout."
+  ]
+ },
+ {
+  "q": "Why must the RMST time horizon τ be chosen in advance?",
+  "options": [
+   "The RMST difference can change, even in sign, depending on τ",
+   "survRM2 only accepts whole numbers of years",
+   "The RMST doesn't depend on τ",
+   "To make the confidence interval narrower"
+  ],
+  "answer": 0,
+  "why": "In the surgery trial, the RMST difference was −0.15 years at 2 years and 0.00 at 4 years. Choosing τ afterwards lets you pick the answer you like.",
+  "hints": [
+   "",
+   "τ can be any time within follow-up.",
+   "The surgery example gave different answers at 1, 2 and 4 years.",
+   "This is about avoiding bias, not precision."
+  ]
+ },
+ {
+  "q": "An AFT model gives a time ratio of 1.5 for women vs men. What does it mean?",
+  "options": [
+   "Women's survival times are about 1.5 times as long as men's",
+   "Women's hazard is 1.5 times men's",
+   "50% more women survive",
+   "Women survive 1.5 years longer"
+  ],
+  "answer": 0,
+  "why": "A time ratio stretches (or shrinks) the whole distribution of survival times. 1.5 means about 50% longer survival times.",
+  "hints": [
+   "",
+   "That would be a hazard ratio, from a Cox model.",
+   "It's about how long people survive, not the proportion surviving.",
+   "It's a ratio, not a difference in years."
+  ]
+ }
+])
+```
+
+## Summary
+
+::: {.callout-important icon="false"}
+## Key points
+- If only a **covariate** fails PH, stratify on it. Problems with the **main exposure** change what you should report.
+- A single HR can hide **opposite effects** at different times, as in the surgery trial (HR 0.89 overall, but 2.2 early and 0.5 later).
+- A separate HR for each **period** (`survSplit()`) is easy to explain. `tt()` lets an effect change **smoothly** with time.
+- The **RMST** is the average survival time up to a horizon τ, the area under the KM curve. It doesn't rely on PH, but its answer depends on τ, so choose τ in advance.
+- **Survival at fixed times** and the **KM curves** themselves always help.
+- **AFT models** describe effects as **time ratios**, with their own assumptions.
+:::
+
+**Answering the question.** Report what the data show over time: the KM curves, survival at clinically important times, and either period-specific HRs or the RMST at a horizon chosen in advance. In the surgery trial, these reveal early harm and later benefit, which the single HR of 0.89 hid completely.
+
+## Further reading
+
+All of these are free to read online unless marked otherwise. The whole
+book's reading list, grouped by topic, is in @sec-further-reading.
+
+- @uno2014: **Start here.** Why and how to report the RMST instead of, or alongside, the hazard ratio.
+- @royston2013: *More advanced.* The RMST in detail, including how to choose the time horizon.
+- @stensrud2020: Why hazard ratios often change over time. (May need institutional access.)
+- @survival_timedep: The survival package's guide to time-dependent covariates and coefficients, including `tt()`.

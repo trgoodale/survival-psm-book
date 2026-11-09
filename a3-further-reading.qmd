@@ -1,0 +1,128 @@
+# Further reading {#sec-further-reading}
+
+Each chapter ends with a short reading list for that chapter. This page
+collects everything in one place, grouped by topic, with a link to the
+chapter where each item is most useful. All of it is free to read online
+unless marked otherwise.
+
+## Where to start
+
+If you read only three things alongside this book, make it these:
+
+- @clark2003: survival data, censoring and Kaplan–Meier curves, for
+  clinicians and researchers (Chapters 1–2).
+- @bradburn2003: Cox regression and models with several variables
+  (Chapter 3).
+- @haukoos2015: a two-page overview of propensity scores and their limits
+  (Chapter 5). (May need institutional access.)
+
+## The *British Journal of Cancer* survival analysis series
+
+Four papers from 2003 by the same authors, written for medical researchers.
+They make a clear, connected course, and are best read in order.
+
+| Part | Paper | Covers | Goes with |
+|---|---|---|---|
+| I | @clark2003 | Survival data, censoring, Kaplan–Meier curves, the log-rank test, reporting | Chapters 1–2 |
+| II | @bradburn2003 | The Cox model and models with several variables | Chapter 3 |
+| III | @bradburn2003b | Choosing a model, and checking its assumptions and fit, including proportional hazards | Chapter 3 |
+| IV | @clark2003b | Further topics, including missing data, model validation and repeated events | Beyond this book |
+
+## The *BMJ* Statistics Notes
+
+One-page explanations from Martin Bland and Douglas Altman's long-running
+series.
+
+- @bland1998km: the Kaplan–Meier method, with a worked example
+  (@sec-km).
+- @bland2004logrank: how the log-rank test works (@sec-logrank).
+
+## Hazard ratios and proportional hazards
+
+- @spruance2004: what a hazard ratio does and doesn't tell you, and how it
+  relates to probabilities and median survival times (@sec-cox).
+- @stensrud2020: why hazard ratios often change over time, and why survival
+  curves can be more informative (@sec-ph-check). (May need institutional
+  access.)
+- @royston2013: *More advanced.* The restricted mean survival time, for
+  when hazard ratios aren't constant (@sec-absolute).
+
+## Common traps
+
+- @leung1997: *More advanced.* The kinds of censoring, and why the
+  non-informative censoring assumption matters (@sec-informative). (May
+  need institutional access.)
+- @austin2016cr: competing risks: cumulative incidence, cause-specific and
+  Fine–Gray models (@sec-competing).
+- @suissa2008: the classic description of immortal time bias, with
+  examples from drug studies (@sec-immortal). (May need institutional
+  access.)
+- @sylvestre2006: the Oscar-winners reanalysis, a short and memorable
+  example of immortal time bias (@sec-immortal).
+
+## Propensity scores and matching
+
+- @austin2011intro: the standard introduction to propensity score methods:
+  matching, weighting, stratification and checking balance (@sec-psm).
+- @stuart2010: *More advanced.* A thorough review of matching methods and
+  the choices involved (@sec-matchit).
+- @austin2013: estimating and reporting treatment effects on survival after
+  propensity score matching, including marginal hazard ratios
+  (@sec-together).
+- @westreich2013: the Table 2 fallacy: why the other coefficients in an
+  adjusted model shouldn't be read as effects (@sec-together).
+- @vanderweele2017: the E-value, for judging how strong an unmeasured
+  confounder would have to be (@sec-together).
+
+## Weighting and other matching methods
+
+- @chesnaye2022: a short, clear introduction to inverse probability of
+  treatment weighting (@sec-weighting).
+- @austin2015iptw: best practice for IPTW, including extreme weights and
+  survival outcomes (@sec-weighting).
+
+## When proportional hazards fail
+
+- @uno2014: why and how to report the restricted mean survival time
+  alongside, or instead of, the hazard ratio (@sec-nonph).
+- @royston2013 and @stensrud2020, listed above, are also relevant here.
+
+## Missing data
+
+- @sterne2009: a readable guide to multiple imputation and its pitfalls
+  (@sec-missing).
+- @white2009: how to include a survival outcome when imputing covariates
+  for a Cox model (@sec-missing). (May need institutional access.)
+- @vanbuuren2018: a free online book by the author of mice.
+- @pishgar2021: matching and weighting after multiple imputation, with the
+  MatchThem package (@sec-missing).
+
+## Reporting
+
+- @strobe2007: the STROBE reporting guideline for observational studies,
+  with a checklist for writing up (@sec-together).
+
+## Going deeper
+
+- @hernan2020: *Advanced.* A free book on causal inference from
+  observational data: confounding, study design and much more.
+
+## R package guides
+
+The guides written by the packages' own authors are the best references for
+the code. Each one can also be opened from R with `vignette()`.
+
+- @survival_vignette: the survival package as a whole, especially Cox
+  models: `vignette("survival", package = "survival")`.
+- @survival_compete: competing risks and multi-state models:
+  `vignette("compete", package = "survival")`.
+- @survival_timedep: time-dependent covariates, `tmerge()` and landmark
+  analysis: `vignette("timedep", package = "survival")`.
+- @matchit_vignette: the MatchIt workflow: `vignette("MatchIt")`, and
+  `vignette("estimating-effects", package = "MatchIt")` for the analysis
+  after matching.
+- Greifer N. *Covariate Balance Tables and Plots*: `vignette("cobalt")`.
+- @weightit_vignette: the WeightIt workflow: `vignette("WeightIt")`.
+- Sjoberg DD et al. *ggsurvfit* documentation:
+  <https://www.danieldsjoberg.com/ggsurvfit/>.
+- @ucla_survival: free workshop materials on survival analysis in R.

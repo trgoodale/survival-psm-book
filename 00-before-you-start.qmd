@@ -1,0 +1,227 @@
+# Before you start {#sec-start .unnumbered}
+
+This page covers three things:
+
+1. the statistics and R that the book assumes, with a short refresher for
+   each;
+2. setting up your computer, including the files to download;
+3. how the book is laid out.
+
+If you're comfortable with the refreshers, skim them and go straight to
+setting up.
+
+## What the book assumes {#sec-assumed}
+
+You don't need to know anything about survival analysis or propensity
+scores. You *do* need some basic statistics. Open any refresher below that
+you're unsure about.
+
+| Idea | Where it's used |
+|---|---|
+| Means, proportions and standard deviations | Throughout, especially Chapter 5 (SMDs) |
+| Confidence intervals | Throughout |
+| p-values and hypothesis tests | Chapters 2–7 |
+| Regression: an outcome explained by several predictors | Chapters 3–7 |
+| Odds, odds ratios and logistic regression | Chapter 5 |
+
+::: {.callout-note collapse="true" icon="false"}
+## Refresher: standard deviation
+The **standard deviation (SD)** measures how spread out values are around
+their mean. If ages in a group have mean 65 and SD 10, most people are
+roughly between 55 and 75. In Chapter 5, differences between groups are
+measured *in units of SD* (the standardised mean difference), so that age
+in years and BMI in kg/m² can be compared on the same scale.
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Refresher: confidence intervals
+A **95% confidence interval (CI)** gives a range of plausible values for
+the true quantity, based on the data. "Median survival 310 days (95% CI
+285 to 363)" means the data are consistent with a true median anywhere in
+roughly that range. Wider intervals mean less certainty, usually because
+of less data.
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Refresher: p-values and hypothesis tests
+A test starts from a **null hypothesis**, usually "no difference". The
+**p-value** is the probability of getting data at least as extreme as
+yours *if the null hypothesis were true*. A small p-value (conventionally
+< 0.05) is evidence against the null.
+
+Three things to remember:
+
+- A p-value is **not** the probability that the null hypothesis is true.
+- A small p-value doesn't mean the difference is large or important.
+  Always look at the size of the effect and its CI.
+- Each test at the 5% level has a 5% chance of a false positive, so
+  running many tests produces false positives. That's why multiple
+  comparisons are adjusted (Chapter 2).
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Refresher: regression and "adjusting for" variables
+A **regression model** relates an outcome to several predictors at once.
+Each predictor's coefficient describes its effect **holding the other
+predictors fixed**. That's what "adjusted for age and sex" means: the
+comparison is between people of the same age and sex. Linear regression
+does this for a continuous outcome. The Cox model (Chapter 3) does it for
+survival.
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Refresher: odds, odds ratios and logistic regression
+If the probability of an event is $p$, the **odds** are $p / (1 - p)$.
+
+| Probability | Odds | Log-odds (logit) |
+|---|---|---|
+| 0.5 | 1 | 0 |
+| 0.8 | 4 | 1.39 |
+| 0.2 | 0.25 | −1.39 |
+
+An **odds ratio (OR)** compares the odds in two groups. OR = 2 means the
+odds are doubled. **Logistic regression** models a yes/no outcome. Its
+coefficients are log odds ratios, and `exp()` turns them into odds ratios.
+The **log-odds** (or *logit*) scale stretches probabilities near 0 and 1
+out evenly, which is why Chapter 5 measures distances between propensity
+scores on that scale.
+:::
+
+## The R you need {#sec-r-basics}
+
+You should be able to run code in RStudio (or Positron), create objects
+with `<-`, and install and load packages. The book also uses a few other
+features again and again. Here they are in one place.
+
+**Data frames and columns.** A dataset is a *data frame*: one row per
+patient, one column per variable. `df$age` is the `age` column, and
+`head(df)` shows the first rows.
+
+**Factors.** A *factor* is a categorical variable with fixed *levels*, e.g.
+`sex` with levels `"Male"` and `"Female"`. In models, the **first level is
+the reference group** that the other levels are compared with.
+
+**Formulas.** Almost every modelling function uses a formula,
+`outcome ~ predictors`:
+
+```r
+glm(treated ~ age + diabetes, data = cohort, family = binomial)  # treated explained by age and diabetes
+coxph(Surv(time, status) ~ sex + age, data = lung)               # survival explained by sex and age
+survfit(Surv(time, status) ~ 1, data = lung)                     # ~ 1 means "no groups"
+```
+
+In survival models the outcome is `Surv(time, status)`, which combines
+follow-up time and whether the event happened (Chapter 1).
+
+**The pipe, `|>`.** Read it as "and then". These two lines do the same
+thing:
+
+```r
+summary(filter(lung, age > 60))
+lung |> filter(age > 60) |> summary()
+```
+
+**A few dplyr functions.** These come from the dplyr package:
+
+- `mutate()` creates or changes a column;
+- `filter()` keeps the rows that meet a condition;
+- `select()` keeps chosen columns;
+- `group_by()` + `summarise()` calculates summaries for each group.
+
+**Getting help.** Type `?coxph` (or any function name) in the console.
+
+## Setting up your computer {#sec-setup}
+
+::: {.callout-tip}
+## You can start without installing anything
+The exercises in Chapters 1–7 and 9–11 run R **inside the web page** (see
+@sec-live-exercises), so you can work through the whole book in your
+browser. Set up R on your own computer when you want to run the code
+yourself, use the Shiny apps in Chapter 8, or analyse your own data.
+:::
+
+### 1. Install R, RStudio and the packages
+
+Install [R](https://cran.r-project.org) (version 4.2 or later) and
+[RStudio Desktop](https://posit.co/download/rstudio-desktop/). Then run
+this once in the RStudio console:
+
+```r
+install.packages(c(
+  "survival",   # survival data, Kaplan-Meier, log-rank test, Cox models
+  "ggsurvfit",  # Kaplan-Meier plots
+  "survminer",  # pairwise log-rank tests
+  "MatchIt",    # propensity score matching
+  "cobalt",     # checking covariate balance
+  "broom",      # tidy tables of model results
+  "dplyr", "ggplot2", "tidyr",
+  "shiny"       # only needed for the apps in Chapter 8
+))
+
+# Only needed for the Going further chapters (9-11)
+install.packages(c("WeightIt", "survRM2", "mice", "MatchThem"))
+```
+
+### 2. Make a project folder
+
+In RStudio, choose **File ▸ New Project ▸ New Directory ▸ New Project**,
+and call it something like `survival-course`. RStudio will look in this
+folder for any files you load. Save everything for this course there.
+
+### 3. Download the course files
+
+Save these files into your project folder:
+
+| File | What it is | Used in |
+|---|---|---|
+| [simulate_cohort.R](R/simulate_cohort.R){download="simulate_cohort.R"} | Function that creates the simulated cohort | Chapters 5–7 |
+| [cohort.csv](data/cohort.csv){download="cohort.csv"} | The same simulated cohort, as a spreadsheet file | Chapters 5–7 (alternative to the script) |
+| [pairwise_logrank.R](R/pairwise_logrank.R){download="pairwise_logrank.R"} | Optional helper showing how pairwise log-rank tests work | Chapter 2 (optional) |
+| [survival-explorer.R](apps/survival-explorer/app.R){download="survival-explorer.R"} | Shiny app: KM curves and Cox models on real data | Chapter 8 |
+| [psm-explorer.R](apps/psm-explorer/app.R){download="psm-explorer.R"} | Shiny app: matching vs weighting vs adjustment | Chapter 8 |
+
+The other datasets (`lung`, `veteran`, `mgus2`, `jasa` and `heart`) come
+with the survival package, so you don't need to download them.
+
+### 4. Check that everything works
+
+Run this in the console, from inside your project:
+
+```r
+library(survival)
+library(ggsurvfit)
+library(survminer)
+library(MatchIt)
+library(cobalt)
+
+source("simulate_cohort.R")       # loads the simulate_cohort() function
+cohort <- simulate_cohort()
+nrow(cohort)                      # should print 2000
+```
+
+If you get *"cannot open file 'simulate_cohort.R'"*, the file isn't in your
+project folder. Check where it was downloaded, and move it.
+
+## How the book is laid out {#sec-layout}
+
+Each chapter mixes reading, R code, interactive apps and practice. The
+boxes always mean the same thing:
+
+| Box | What it's for |
+|---|---|
+| **In this chapter** / **Summary** | The question each chapter answers, and later the key points and the answer. A **Warm-up** with two recall questions comes first from Chapter 2 on |
+| **How to read this output** | Points out the few numbers that matter in a block of R output |
+| **Things to try** / **Answers** | Guided activities for an app: predict first, then check the collapsed answers |
+| **Practice**, **Exercise** and **Quick quiz** | Live R code boxes in the page with hints and automatic checking (R loads in your browser the first time, 10–30 seconds), then quiz questions with instant feedback |
+| **Going further (optional)** | Extra depth, collapsed. **Skip these on a first read.** The main text never depends on them. Many end with a link to the fuller treatment in the Going further part |
+| **You need this chapter if…** | At the start of each chapter in the *Going further* part (Chapters 9–11), which are for when your own analysis needs them. It says when the chapter applies to you, and which core chapters it builds on |
+
+If you meet a term you don't recognise, look it up in the
+[Glossary](a2-glossary.qmd).
+
+::: {.callout-tip}
+## A suggested way to work
+On your first pass, read the main text, use the apps, and do the quizzes
+and exercises. Skip the "Going further" boxes. Come back to them once the
+main ideas feel familiar, or when you need one for your own analysis.
+:::

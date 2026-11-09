@@ -1,0 +1,1304 @@
+---
+format:
+  live-html:
+    webr:
+      packages:
+        - survival
+---
+
+# Common traps: censoring, competing events and time zero {#sec-traps}
+
+```{r}
+#| label: setup-ch4
+#| include: false
+library(survival)
+library(ggsurvfit)
+library(dplyr)
+library(ggplot2)
+```
+
+{{< include ./_extensions/r-wasm/live/_knitr.qmd >}}
+
+::: {.callout-note icon="false"}
+## In this chapter
+**The question.** Kaplan–Meier curves and Cox models can give badly wrong answers even when the code runs without any errors. What are the most common traps, how do you spot them, and what should you do instead?
+
+**By the end of this chapter you will be able to:**
+
+- explain **informative censoring**, and check whether patients lost to follow-up differ from those who stayed;
+- recognise **competing risks**, estimate the **cumulative incidence** with `survfit()`, and explain the difference between a cause-specific and a Fine–Gray model;
+- explain **immortal time bias**, and avoid it with a **landmark analysis** or a **time-varying covariate**.
+:::
+
+## Warm-up: remember Chapter 3? {.unnumbered}
+
+Two quick questions to bring back the key ideas from last time.
+
+```{ojs}
+//| echo: false
+import {makeRandom, kmFit, quiz} from "./js/survtools.js"
+formGrid = inputs => html`<div class="form-grid">${Object.values(inputs)}</div>`
+```
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "A Cox model includes <code>strata(site)</code>. What does that do?",
+  "options": [
+   "It gives each site its own baseline hazard, and no HR for site",
+   "It estimates an HR comparing each site with the first one",
+   "It removes the patients from the smallest site",
+   "It tests whether the sites have proportional hazards"
+  ],
+  "answer": 0,
+  "why": "Stratifying lets each site's baseline hazard have its own shape. The other HRs are estimated within sites, but site itself gets no HR.",
+  "hints": [
+   "",
+   "That's what putting <code>site</code> in as an ordinary factor does.",
+   "Stratification keeps everyone.",
+   "That's what <code>cox.zph()</code> does."
+  ]
+ },
+ {
+  "q": "<code>cox.zph()</code> gives p = 0.002 for one variable in your Cox model. What does that suggest?",
+  "options": [
+   "That variable's hazard ratio seems to change over follow-up",
+   "That variable has no effect on survival",
+   "The model fits the data well",
+   "That variable should be removed from the model"
+  ],
+  "answer": 0,
+  "why": "A small p-value from <code>cox.zph()</code> is evidence against proportional hazards for that variable: its HR isn't constant over time. Look at the plot, then consider stratifying or splitting follow-up time.",
+  "hints": [
+   "",
+   "<code>cox.zph()</code> tests whether the HR is constant, not whether it's 1.",
+   "A small p-value here points to a problem, not a good fit.",
+   "Dropping a variable doesn't solve non-proportional hazards, and may introduce confounding."
+  ]
+ }
+])
+```
+
+The three traps in this chapter have something in common. Each one comes
+from getting wrong **who is at risk, and when**:
+
+- with **informative censoring**, the patients who leave the risk set are
+  different from those who stay;
+- with **competing risks**, patients who can no longer have the event are
+  treated as if they still could;
+- with **immortal time bias**, patients are counted in a group before they
+  have actually joined it.
+
+## Trap 1: informative censoring {#sec-informative}
+
+Chapter 1 introduced the key assumption behind Kaplan–Meier curves, the
+log-rank test and the Cox model: censoring must be **non-informative**. A patient who is censored must have
+the same future risk as the patients who are still being followed.
+
+It's called *informative* censoring when that fails, because then the fact
+that someone was censored **tells you something** about their risk. Suppose
+the sickest patients stop coming to clinic because they're too ill to
+travel. When one of them is censored, that tells you they were probably
+about to die. Kaplan–Meier can't know this. It assumes each censored
+patient would have done as well as the patients who stayed, so it
+quietly replaces sick patients with healthier ones.
+
+### Interactive app: who drops out? {#sec-app-informative}
+
+This app makes it visible. Half the patients are **sicker** (median
+survival 6 months) and half are **healthier** (median 36 months). The dashed
+line is the true survival curve for the whole group. The solid line is the
+KM estimate from one simulated study, with 36 months of follow-up.
+You choose how many patients drop out, and **who** drops out.
+
+::: {.app}
+```{ojs}
+//| echo: false
+viewof icScen = Inputs.radio(["Everyone equally likely to drop out", "The sickest drop out", "The healthiest drop out", "No drop-out"], {value: "Everyone equally likely to drop out", label: "Scenario"})
+icP = ({"Everyone equally likely to drop out": {}, "The sickest drop out": {"who": "Mostly the sicker half"}, "The healthiest drop out": {"who": "Mostly the healthier half"}, "No drop-out": {"drop": 0}})[icScen]
+viewof ic = Inputs.form({
+  n:     Inputs.range([200, 3000], {value: icP.n ?? 1000, step: 100, label: "Patients"}),
+  drop:  Inputs.range([0, 0.1], {value: icP.drop ?? 0.04, step: 0.005, label: "Drop-out rate (per month)"}),
+  who:   Inputs.select(["Everyone equally", "Mostly the sicker half", "Mostly the healthier half"], {value: icP.who ?? "Everyone equally", label: "Who drops out?"}),
+  seed:  Inputs.range([1, 200], {value: icP.seed ?? 2, step: 1, label: "Random seed (new study)"}),
+  split: Inputs.toggle({label: "Show each half separately", value: false})
+}, {template: formGrid})
+```
+
+```{ojs}
+//| echo: false
+icSim = {
+  const r = makeRandom(ic.seed), fu = 36;
+  const lamS = Math.LN2 / 6, lamH = Math.LN2 / 36;
+  // drop-out is 3 times more (or less) likely in the sicker half
+  const k = ic.who === "Mostly the sicker half" ? 3 : ic.who === "Mostly the healthier half" ? 1 / 3 : 1;
+  return Array.from({length: ic.n}, (_, i) => {
+    const sick = i % 2 === 0;
+    const tE = r.exp(sick ? lamS : lamH);
+    const rate = ic.drop * (sick ? k : 1 / k);
+    const tD = rate > 0 ? r.exp(rate) : Infinity;
+    const time = Math.min(tE, tD, fu);
+    const event = tE <= Math.min(tD, fu) ? 1 : 0;
+    const why = event ? "Died" : (tD < Math.min(tE, fu) ? "Dropped out" : "Study ended");
+    return {half: sick ? "Sicker half" : "Healthier half", time, event, why};
+  });
+}
+icGroups = ic.split ? ["Sicker half", "Healthier half"] : ["Everyone"]
+icFits = icGroups.flatMap(g => {
+  const d = g === "Everyone" ? icSim : icSim.filter(x => x.half === g);
+  return kmFit(d.map(x => x.time), d.map(x => x.event)).map(r => ({...r, group: g}));
+})
+icTrue = {
+  const lamS = Math.LN2 / 6, lamH = Math.LN2 / 36, pts = [];
+  for (let t = 0; t <= 36; t += 0.36) {
+    const sS = Math.exp(-lamS * t), sH = Math.exp(-lamH * t);
+    if (ic.split) {
+      pts.push({time: t, surv: sS, group: "Sicker half"});
+      pts.push({time: t, surv: sH, group: "Healthier half"});
+    } else {
+      pts.push({time: t, surv: (sS + sH) / 2, group: "Everyone"});
+    }
+  }
+  return pts;
+}
+icAt = (fit, t) => { let s = 1; for (const r of fit) if (r.time <= t) s = r.surv; return s; }
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  height: 340, y: {domain: [0, 1], grid: true, label: "Survival probability"},
+  x: {label: "Months →", domain: [0, 36]},
+  color: {legend: true, domain: icGroups, range: ic.split ? ["#D55E00", "#009E73"] : ["#0072B2"]},
+  marks: [
+    Plot.areaY(icFits, {x: "time", y1: "lower", y2: "upper", fill: "group", fillOpacity: 0.15, curve: "step-after"}),
+    Plot.line(icTrue, {x: "time", y: "surv", stroke: "group", strokeDasharray: "5,4", strokeWidth: 1.5}),
+    Plot.line(icFits, {x: "time", y: "surv", stroke: "group", strokeWidth: 2.2, curve: "step-after"})
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+{
+  const lamS = Math.LN2 / 6, lamH = Math.LN2 / 36;
+  const truth = (g, t) => g === "Sicker half" ? Math.exp(-lamS * t) :
+    g === "Healthier half" ? Math.exp(-lamH * t) : (Math.exp(-lamS * t) + Math.exp(-lamH * t)) / 2;
+  const pct = v => (100 * v).toFixed(0) + "%";
+  const rows = icGroups.map(g => {
+    const f = icFits.filter(r => r.group === g);
+    const d = g === "Everyone" ? icSim : icSim.filter(x => x.half === g);
+    return {Group: g,
+      "Dropped out": pct(d.filter(x => x.why === "Dropped out").length / d.length),
+      "KM at 12 months": pct(icAt(f, 12)), "True at 12 months": pct(truth(g, 12)),
+      "KM at 24 months": pct(icAt(f, 24)), "True at 24 months": pct(truth(g, 24))};
+  });
+  return Inputs.table(rows, {layout: "auto"});
+}
+```
+:::
+
+::: {.callout-tip}
+## Things to try
+For each one, **predict first**, then pick the scenario and check.
+
+1. **Predict:** if everyone is equally likely to drop out, will the KM curve
+   sit above the true curve, below it, or on it? *Then* look at the default
+   scenario, **Everyone equally likely to drop out**. Try a few seeds.
+2. **Predict:** if the sickest patients drop out, will KM **overestimate**
+   or **underestimate** survival? *Then* pick **The sickest drop out**.
+3. **Predict:** what if the healthiest drop out instead (they feel well and
+   stop attending, or move away)? *Then* pick **The healthiest drop out**.
+4. Go back to **The sickest drop out** and tick **Show each half
+   separately**. Does the KM curve for each half match its own true curve?
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Answers: what you should see
+1. **On it**, apart from chance wobbles. Almost half the patients (45%)
+   drop out, but because drop-out has nothing to do with how sick they are, KM still
+   gets it right: about 52% at 12 months (truth 52%) and 33% at 24 months
+   (truth 35%). Lots of censoring makes the estimate less *precise* (wider
+   CIs), but not *biased*.
+2. **Overestimate.** With a similar amount of drop-out (41%), KM now says about 60%
+   are alive at 12 months and 43% at 24 months: much better than the truth
+   (52% and 35%). The sick patients who left would mostly have died, but KM
+   assumes they'd have done as well as the healthier patients who stayed.
+3. **Underestimate.** KM gives about 44% at 12 months and only 19% at 24
+   months. The patients who stayed are mostly the sicker ones, so the curve
+   looks too pessimistic.
+4. **Yes**, within each half the KM curve is close to its own true curve
+   (allowing for chance), even though the overall curve was badly wrong. Within a half, dropping out
+   tells you nothing more about a patient's risk. So if you know *why*
+   people drop out (here, how sick they are) and have measured it, you can
+   allow for it, for example by analysing within groups or adjusting for it
+   in a Cox model.
+:::
+
+### What you can do about it
+
+The difficulty is that in real data, unlike in the app, you can't see the
+true curve. **Informative censoring can't be detected from the survival
+data alone.** What you can do is:
+
+- think about **why** patients were censored. Administrative censoring
+  (the study ended) is usually harmless. Loss to follow-up deserves a
+  closer look;
+- compare patients who were lost to follow-up with those who weren't, on
+  their characteristics at the start;
+- if drop-out depends on things you measured, allow for them (in a Cox
+  model, or with more advanced methods such as *inverse probability of
+  censoring weighting*);
+- report how many patients were lost to follow-up, so readers can judge.
+
+### Practice: who dropped out?
+
+*This is a live exercise: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used one before.*
+
+The data frame `trial` (already loaded) has 800 patients followed for up to
+36 months. `lost` is 1 for patients lost to follow-up, and `severe` is 1 for
+patients who had severe disease at the start. Check whether the patients who
+were lost look different from those who stayed. Replace each `______`, then
+click **Run Code**.
+
+```{webr}
+#| setup: true
+#| exercise: ex_lost
+library(survival)
+set.seed(7)
+n <- 800
+severe     <- rbinom(n, 1, 0.5)
+death_time <- rexp(n, rate = ifelse(severe == 1, log(2) / 6, log(2) / 36))
+drop_time  <- rexp(n, rate = ifelse(severe == 1, 0.12, 0.04 / 3))
+trial <- data.frame(
+  time   = pmin(death_time, drop_time, 36),
+  status = as.numeric(death_time <= pmin(drop_time, 36)),
+  lost   = as.numeric(drop_time < pmin(death_time, 36)),
+  severe = severe
+)
+rm(severe, death_time, drop_time, n)
+```
+
+```{webr}
+#| exercise: ex_lost
+#| caption: "Practice: who dropped out?"
+# How many patients were lost to follow-up?
+table(trial$lost)
+
+# Proportion with severe disease among those who stayed (0) and were lost (1)
+tapply(trial$______, trial$______, mean)
+```
+
+::: {.hint exercise="ex_lost"}
+::: {.callout-note collapse="false"}
+## Hint 1
+`tapply(x, group, mean)` gives the mean of `x` in each group. Here `x` is `severe` and the groups are defined by `lost`.
+:::
+:::
+
+::: {.solution exercise="ex_lost"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+table(trial$lost)
+tapply(trial$severe, trial$lost, mean)
+```
+
+332 patients were lost to follow-up. 62% of them had severe disease,
+compared with 41% of the patients who stayed. Drop-out was clearly related
+to how sick patients were, so the censoring is probably **informative**.
+Here, the overall KM estimate of 2-year survival is 50%, when the truth
+(which we know, because the data are simulated) is 35%. Because severity
+was measured, you can allow for it: within each severity group, the KM
+curves are close to the truth.
+:::
+:::
+
+```{webr}
+#| exercise: ex_lost
+#| check: true
+r <- .result
+if (!is.numeric(r) || length(r) != 2 || !identical(names(r), c("0", "1"))) {
+  list(correct = FALSE, message = "The last line should be <code>tapply(trial$severe, trial$lost, mean)</code>: one number for each value of <code>lost</code>.")
+} else if (abs(r[["1"]] - 0.62) > 0.01) {
+  list(correct = FALSE, message = "Take the mean of <code>severe</code>, grouped by <code>lost</code>.")
+} else {
+  list(correct = TRUE, message = "Correct! 62% of the patients who were lost had severe disease, compared with 41% of those who stayed. Drop-out is related to prognosis, so the censoring is probably informative.")
+}
+```
+
+## Trap 2: competing risks {#sec-competing}
+
+Suppose the event you care about is **relapse** of a cancer, but some
+patients **die** before they relapse. What do you do with those deaths?
+
+The tempting answer is to treat them as censored: they didn't relapse
+during follow-up, after all. But a patient who has died **can never
+relapse**. Censoring them tells KM to assume they're still at risk of
+relapse, just unobserved, like someone who moved away. These events are
+called **competing risks**, because the two events compete: whichever
+happens first prevents the other.
+
+The result is that **1 − KM overestimates the probability of the event**.
+This simulation has relapse and death without relapse equally common:
+
+```{r}
+#| label: competing-sim
+set.seed(2026)
+n <- 1000
+relapse_time <- rexp(n, rate = 0.15)    # years
+death_time   <- rexp(n, rate = 0.15)    # death without relapse
+end_time     <- runif(n, 2, 6)          # end of follow-up
+
+cr <- data.frame(time = pmin(relapse_time, death_time, end_time))
+cr$event <- ifelse(cr$time == relapse_time, "relapse",
+            ifelse(cr$time == death_time, "death", "censored"))
+cr$event <- factor(cr$event, levels = c("censored", "relapse", "death"))
+
+table(cr$event)
+```
+
+First the **wrong** way. Treat each kind of event in turn as the outcome,
+censoring the other, and look at 1 − KM at 5 years:
+
+```{r}
+#| label: competing-wrong
+km_relapse <- survfit(Surv(time, event == "relapse") ~ 1, data = cr)
+km_death   <- survfit(Surv(time, event == "death") ~ 1, data = cr)
+
+1 - summary(km_relapse, times = 5)$surv     # "risk" of relapse
+1 - summary(km_death, times = 5)$surv       # "risk" of death
+```
+
+That says 52% relapse by 5 years *and* 52% die without relapsing: 104% of
+patients. That's impossible, because no patient can do both.
+
+The **right** way is the **cumulative incidence function** (CIF): the
+probability of having had each kind of event by a given time, allowing for
+the fact that the other event can happen first. `survfit()` calculates it
+when the event variable is a **factor** whose first level is censoring:
+
+```{r}
+#| label: competing-right
+cif <- survfit(Surv(time, event) ~ 1, data = cr)
+summary(cif, times = 5)
+```
+
+::: {.callout-note icon="false"}
+## How to read this output
+- **`Pr((s0))`** is the probability of having had **neither** event yet (here
+  23%). `(s0)` stands for the starting state.
+- **`Pr(relapse)`** and **`Pr(death)`** are the cumulative incidences: 39%
+  and 38% at 5 years.
+- The three add up to 100%, as they should.
+:::
+
+```{r}
+#| label: fig-competing
+#| fig-cap: "1 − KM overstates the probability of relapse when some patients die first."
+#| fig-height: 3.5
+plot_data <- rbind(
+  data.frame(time   = km_relapse$time,
+             risk   = 1 - km_relapse$surv,
+             method = "1 - KM (deaths censored)"),
+  data.frame(time   = cif$time,
+             risk   = cif$pstate[, "relapse"],
+             method = "Cumulative incidence")
+)
+
+ggplot(plot_data, aes(x = time, y = risk, colour = method)) +
+  geom_step(linewidth = 1) +
+  scale_colour_manual(values = c("#D55E00", "#0072B2")) +
+  labs(x = "Years", y = "Probability of relapse", colour = NULL) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+```
+
+The gap grows over time, as more patients are removed by the competing
+event. It matters most when the competing event is common, for example in
+older patients, or for cause-specific outcomes such as death from cancer
+(where death from other causes competes).
+
+What does 1 − KM actually estimate? The probability of relapse in a
+hypothetical world where **nobody could die first**, and even that only
+under strong assumptions. That's occasionally the question you want, but
+usually it isn't.
+
+### Interactive app: when does it matter? {#sec-app-competing}
+
+How badly 1 − KM overstates the risk depends on how common the competing
+event is, and on how long patients are followed. In this app you set the
+rate of the event of interest (say relapse) and of the competing event (say
+death), both per year. The solid lines are estimated from one simulated
+study. The dashed lines are the truth:
+
+- **blue dashed**: the true probability of relapse, which the cumulative
+  incidence (solid blue) should follow;
+- **orange dashed**: the probability of relapse in a world where nobody
+  could die first, which is what 1 − KM (solid orange) actually estimates.
+
+```{ojs}
+//| echo: false
+import {simCompeting, competingCurves, stepAt, simImmortal, immortalEstimates} from "./js/extras.js"
+```
+
+::: {.app}
+```{ojs}
+//| echo: false
+viewof crScen = Inputs.radio(["Default", "No competing event", "Common competing event", "Rare event, common competing event", "Short follow-up"], {value: "Default", label: "Scenario"})
+crP = ({"Default": {}, "No competing event": {"rate2": 0}, "Common competing event": {"rate2": 0.4}, "Rare event, common competing event": {"rate1": 0.02, "rate2": 0.12, "fu": 20, "at": 15}, "Short follow-up": {"fu": 2, "at": 1.5}})[crScen]
+viewof cr = Inputs.form({
+  rate1: Inputs.range([0.01, 0.5], {value: crP.rate1 ?? 0.15, step: 0.01, label: "Rate of the event of interest (per year)"}),
+  rate2: Inputs.range([0, 0.5], {value: crP.rate2 ?? 0.15, step: 0.01, label: "Rate of the competing event (per year)"}),
+  fu:    Inputs.range([1, 20], {value: crP.fu ?? 6, step: 1, label: "Maximum follow-up (years)"}),
+  at:    Inputs.range([0.5, 20], {value: crP.at ?? 5, step: 0.5, label: "Read off the risk at (years)"}),
+  n:     Inputs.range([200, 3000], {value: crP.n ?? 1000, step: 100, label: "Patients"}),
+  seed:  Inputs.range([1, 100], {value: crP.seed ?? 1, step: 1, label: "Random seed (new study)"})
+}, {template: formGrid})
+```
+
+```{ojs}
+//| echo: false
+crRows = competingCurves(simCompeting({n: cr.n, rate1: cr.rate1, rate2: cr.rate2, fu: cr.fu, seed: cr.seed}))
+crTruth = {
+  const pts = [], tot = cr.rate1 + cr.rate2;
+  for (let t = 0; t <= cr.fu; t += cr.fu / 200) {
+    pts.push({time: t, value: cr.rate1 / tot * (1 - Math.exp(-tot * t)), line: "True risk (with competing event)"});
+    pts.push({time: t, value: 1 - Math.exp(-cr.rate1 * t), line: "Risk if nobody could die first"});
+  }
+  return pts;
+}
+crAt = Math.min(cr.at, cr.fu)
+```
+
+```{ojs}
+//| echo: false
+Plot.plot({
+  height: 330, y: {domain: [0, 1], grid: true, label: "Probability of the event of interest"},
+  x: {label: "Years →", domain: [0, cr.fu]},
+  color: {legend: true, domain: ["1 − KM (competing events censored)", "Cumulative incidence"], range: ["#D55E00", "#0072B2"]},
+  marks: [
+    Plot.line(crTruth.filter(d => d.line === "True risk (with competing event)"), {x: "time", y: "value", stroke: "#0072B2", strokeDasharray: "5,4", strokeWidth: 1.5}),
+    Plot.line(crTruth.filter(d => d.line === "Risk if nobody could die first"), {x: "time", y: "value", stroke: "#D55E00", strokeDasharray: "5,4", strokeWidth: 1.5}),
+    Plot.line(crRows, {x: "time", y: "oneMinusKM", stroke: () => "1 − KM (competing events censored)", strokeWidth: 2.2, curve: "step-after"}),
+    Plot.line(crRows, {x: "time", y: "cif", stroke: () => "Cumulative incidence", strokeWidth: 2.2, curve: "step-after"}),
+    Plot.ruleX([crAt], {stroke: "#888", strokeDasharray: "2,3"})
+  ]
+})
+```
+
+```{ojs}
+//| echo: false
+{
+  const km = stepAt(crRows, "oneMinusKM", crAt), ci = stepAt(crRows, "cif", crAt);
+  const tot = cr.rate1 + cr.rate2;
+  const truth = cr.rate1 / tot * (1 - Math.exp(-tot * crAt));
+  const pct = v => (100 * v).toFixed(1) + "%";
+  return html`<div class="estimates">
+  <div class="est"><span>True risk at ${crAt} years</span><b>${pct(truth)}</b><small>&nbsp;</small></div>
+  <div class="est bad"><span>1 − KM</span><b>${pct(km)}</b><small>${ci > 0 ? (km / ci).toFixed(2) + " × the cumulative incidence" : ""}</small></div>
+  <div class="est good"><span>Cumulative incidence</span><b>${pct(ci)}</b><small>&nbsp;</small></div>
+  </div>`;
+}
+```
+:::
+
+::: {.callout-tip}
+## Things to try
+For each one, **predict first**, then pick the scenario and check.
+
+1. **Predict:** if nobody can die first, will the two estimates differ?
+   *Then* pick **No competing event**.
+2. **Predict:** what happens to the gap when the competing event becomes
+   more common? *Then* pick **Common competing event**.
+3. **Predict:** with a rare event of interest, a common competing event and
+   long follow-up (like the MGUS example below), how far off is 1 − KM?
+   *Then* pick **Rare event, common competing event**.
+4. **Predict:** does the problem matter much in a short study? *Then* pick
+   **Short follow-up**.
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Answers: what you should see
+1. **No.** With no competing event, the two curves are identical (both
+   52% at 5 years, truth 53%). Competing risks only matter when there's
+   something to compete with.
+2. **The gap grows.** With a competing event rate of 0.4 per year, 1 − KM
+   says 52% at 5 years, but the true risk is only 26%: 1 − KM is about
+   double the cumulative incidence (26%). Notice that 1 − KM hardly
+   changes from the default. It estimates the risk in a world without the
+   competing event, so the competing event doesn't affect it, which is
+   exactly the problem.
+3. **About double.** At 15 years, 1 − KM says 25%, but the true risk is
+   about 13% (cumulative incidence 13%). Over long follow-up, most patients
+   have the competing event first.
+4. **Not much.** At 1.5 years, 1 − KM gives 20% and the cumulative
+   incidence 18% (truth 18%). Few patients have had time to die first. The
+   gap grows with follow-up.
+:::
+
+### Real data: progression of MGUS
+
+The `mgus2` dataset, in the survival package, follows 1384 people with
+*monoclonal gammopathy of undetermined significance* (MGUS), a blood
+condition that can progress to a cancer of plasma cells. Most of these
+patients are elderly, so many die of other causes before MGUS has the chance
+to progress. The data have two time columns:
+
+- `ptime` and `pstat`: time to progression (in months), and whether it
+  happened (1) or not (0);
+- `futime` and `death`: time to death or last follow-up, and whether the
+  patient died.
+
+First we combine them into one time and one event, with three possible
+values:
+
+```{r}
+#| label: mgus-setup
+mg <- survival::mgus2
+
+# Time to the first event: progression if it happened, otherwise death or last follow-up
+mg$etime <- ifelse(mg$pstat == 1, mg$ptime, mg$futime)
+
+# Which event came first
+mg$event <- ifelse(mg$pstat == 1, "progression",
+            ifelse(mg$death == 1, "death", "censored"))
+mg$event <- factor(mg$event, levels = c("censored", "progression", "death"))
+
+table(mg$event)
+```
+
+Only 115 patients progressed, but 860 died first. Compare the two estimates
+of the risk of progression at 10, 20 and 30 years (120, 240 and 360
+months):
+
+```{r}
+#| label: mgus-compare
+# Wrong: deaths treated as censored
+km_prog <- survfit(Surv(etime, event == "progression") ~ 1, data = mg)
+1 - summary(km_prog, times = c(120, 240, 360))$surv
+
+# Right: cumulative incidence
+cif_mg <- survfit(Surv(etime, event) ~ 1, data = mg)
+summary(cif_mg, times = c(120, 240, 360))
+```
+
+1 − KM says that 42% of patients will have progressed by 30 years. The
+cumulative incidence is **13%**. The difference is the patients who died
+first: 1 − KM pretends they were still at risk of progression for decades.
+For a patient being told about their risk, the second number is the
+relevant one.
+
+### Comparing groups: rates or probabilities?
+
+With competing risks there are two different questions you can ask about a
+group difference, and two kinds of Cox model to answer them:
+
+- A **cause-specific** Cox model treats competing events as censored. That
+  sounds like the mistake above, but for *hazard ratios* it's fine. It
+  answers: "**among patients still alive and event-free**, does the group
+  change the **rate** of progression?" This is usually the question when you
+  want to know whether something *causes* the event, or whether a treatment
+  works.
+- A **Fine–Gray** model compares the cumulative incidence itself. It
+  answers: "does the group change the **probability** of progression, in a
+  world where patients can also die?" This is usually the question for
+  prediction and planning.
+
+The two can give different answers. Here's the cause-specific model for
+progression, and for death, comparing men with women and adjusting for age:
+
+```{r}
+#| label: mgus-cs
+# Cause-specific Cox model for progression (deaths censored)
+coxph(Surv(etime, event == "progression") ~ sex + age,
+      data = mg) |>
+  broom::tidy(exponentiate = TRUE, conf.int = TRUE) |>
+  select(term, estimate, conf.low, conf.high, p.value)
+
+# Cause-specific Cox model for death (progressions censored)
+coxph(Surv(etime, event == "death") ~ sex + age,
+      data = mg) |>
+  broom::tidy(exponentiate = TRUE, conf.int = TRUE) |>
+  select(term, estimate, conf.low, conf.high, p.value)
+```
+
+Among patients still alive and progression-free, men and women progress at
+the same **rate** (HR for men 0.98, 95% CI 0.67 to 1.41). But men die
+faster (HR 1.48). So fewer men live long enough to progress, and the
+**probability** of progression is lower in men: by 10 years, 5.5% of men
+have progressed, compared with 7.4% of women. Both statements are true.
+They answer different questions.
+
+:::: {.optional}
+::: {.callout-note collapse="true" icon="false"}
+## Going further (optional): a Fine–Gray model in R
+`finegray()` reshapes the data, and `coxph()` with the weights it creates
+fits the Fine–Gray model:
+
+```{r}
+#| label: mgus-fg
+fg <- finegray(Surv(etime, event) ~ sex + age, data = mg,
+               etype = "progression")
+coxph(Surv(fgstart, fgstop, fgstatus) ~ sex + age,
+      weights = fgwt, data = fg) |>
+  broom::tidy(exponentiate = TRUE, conf.int = TRUE) |>
+  select(term, estimate, conf.low, conf.high, p.value)
+```
+
+The HR for men is now 0.77 (95% CI 0.54 to 1.10). This *subdistribution*
+hazard ratio reflects the lower probability of progression in men, which
+comes partly from their higher death rate. It is harder to interpret than a
+cause-specific HR, which is why both are often reported. See @austin2016cr
+and the survival package's vignette [@survival_compete].
+:::
+::::
+
+### Practice: cumulative incidence by sex
+
+*This is a live exercise: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used one before.*
+
+The `mgus2` data are loaded as `mg`. Build the time and event variables,
+then estimate the cumulative incidence of progression and death **by sex**,
+and look at them at 10 years (120 months). Replace each `______`, then
+click **Run Code**.
+
+```{webr}
+#| setup: true
+#| exercise: ex_cif
+library(survival)
+mg <- survival::mgus2
+```
+
+```{webr}
+#| exercise: ex_cif
+#| caption: "Practice: cumulative incidence by sex"
+# Time to the first event
+mg$etime <- ifelse(mg$pstat == 1, mg$ptime, mg$futime)
+
+# Which event came first: censoring must be the first level
+mg$event <- ifelse(mg$pstat == 1, "progression",
+            ifelse(mg$death == 1, "death", "censored"))
+mg$event <- factor(mg$event, levels = c("______", "progression", "death"))
+
+# Cumulative incidence by sex, at 10 years
+cif_sex <- survfit(Surv(etime, ______) ~ sex, data = mg)
+summary(cif_sex, times = ______)
+```
+
+::: {.hint exercise="ex_cif"}
+::: {.callout-note collapse="false"}
+## Hint 1
+The first level of the factor must be censoring: `"censored"`.
+:::
+:::
+
+::: {.hint exercise="ex_cif"}
+::: {.callout-note collapse="false"}
+## Hint 2
+`Surv(etime, event)`, with the factor as the event, gives cumulative incidences. 10 years is 120 months.
+:::
+:::
+
+::: {.solution exercise="ex_cif"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+mg$etime <- ifelse(mg$pstat == 1, mg$ptime, mg$futime)
+mg$event <- ifelse(mg$pstat == 1, "progression",
+            ifelse(mg$death == 1, "death", "censored"))
+mg$event <- factor(mg$event, levels = c("censored", "progression", "death"))
+cif_sex <- survfit(Surv(etime, event) ~ sex, data = mg)
+summary(cif_sex, times = 120)
+```
+
+By 10 years, 7.4% of women and 5.5% of men had progressed, while 48% of
+women and 58% of men had died without progressing. Men are less likely to
+progress mainly because more of them die first: the cause-specific model
+showed no difference in the *rate* of progression.
+:::
+:::
+
+```{webr}
+#| exercise: ex_cif
+#| check: true
+r <- .result
+if (!inherits(r, "summary.survfitms")) {
+  list(correct = FALSE, message = "The last line should be <code>summary(cif_sex, times = 120)</code>, where <code>cif_sex</code> uses the event factor. Check that censoring is the first level.")
+} else if (!all(c("progression", "death") %in% r$states)) {
+  list(correct = FALSE, message = "The first level of the event factor must be censoring: <code>levels = c(\"censored\", \"progression\", \"death\")</code>.")
+} else if (length(r$time) != 2 || any(r$time != 120)) {
+  list(correct = FALSE, message = "Look at 10 years: time is in months, so use <code>times = 120</code>.")
+} else if (abs(r$pstate[1, which(r$states == "progression")] - 0.074) > 0.005) {
+  list(correct = FALSE, message = "Check that the event factor and the time variable are built as in the starter code.")
+} else {
+  p <- r$pstate[, which(r$states == "progression")]
+  list(correct = TRUE, message = sprintf("Correct! By 10 years, %.1f%% of women and %.1f%% of men had progressed. More men died first, so fewer had the chance to progress.", 100 * p[1], 100 * p[2]))
+}
+```
+
+## Trap 3: immortal time bias {#sec-immortal}
+
+Kaplan–Meier curves compare groups that are defined **at time zero**: sex,
+age group, the treatment someone was randomised to. A tempting mistake is
+to group patients by something that only happens **later**, such as
+"received a transplant", "responded to treatment" or "ever took drug X".
+This gives the "yes" group a large, entirely artificial survival advantage.
+
+### Why is it called "immortal" time?
+
+Picture the timelines of two patients who would both start treatment a few
+months after diagnosis:
+
+```text
+           time zero      treatment starts
+              |                |
+Patient A:    |--- waiting ----|==== treated ====| died
+Patient B:    |-- waiting --X  (died before treatment)
+```
+
+Patient A ends up in the "treated" group. But to get there, A had to
+survive the whole waiting period. **Nobody in the treated group can have
+died while waiting**: anyone who did, like patient B, never started
+treatment and ends up in the "untreated" group instead.
+
+So the waiting time of every treated patient is time during which they
+could not die, as if they were temporarily immortal. Hence the name. The
+naive analysis makes two errors at once:
+
+- it counts that **immortal time** as treated follow-up, so the treated
+  group gets credit for survival that has nothing to do with the treatment;
+- the deaths that happened *during* waiting periods, like patient B's, are
+  all counted in the **untreated** group, which makes it look worse.
+
+Both errors push in the same direction: the treatment looks protective
+even if it does nothing at all.
+
+### A treatment that does nothing
+
+This simulation makes 1000 patients whose survival has **nothing** to do
+with treatment. Each patient would start treatment at a random time in the
+first 2 years, but only if they're still alive by then.
+
+```{r}
+#| label: fig-immortal
+#| fig-cap: "Grouping by 'ever treated' makes a useless treatment look dramatically protective."
+#| fig-height: 3.5
+set.seed(42)
+n <- 1000
+
+# Survival times, unrelated to treatment
+death_time <- rexp(n, rate = 0.35)
+
+# When each patient's treatment would start
+start_time <- runif(n, 0, 2)
+
+# Follow-up ends at 3 years
+imm <- data.frame(
+  time   = pmin(death_time, 3),
+  status = as.numeric(death_time <= 3)
+)
+
+# "Ever treated" only if still alive when treatment was due
+treated_in_time <- start_time < imm$time
+imm$ever_treated <- factor(treated_in_time,
+                           levels = c(FALSE, TRUE),
+                           labels = c("Never", "Ever"))
+
+survfit2(Surv(time, status) ~ ever_treated, data = imm) |>
+  ggsurvfit(linewidth = 1) +
+  scale_color_manual(values = c("#D55E00", "#0072B2")) +
+  labs(x = "Years since time zero")
+```
+
+The curves could hardly be further apart, and the log-rank test gives a
+tiny p-value. Yet the treatment does nothing. Notice too that **every**
+"untreated" patient died: the only way to stay untreated was to die before
+your treatment was due to start.
+
+This is not just a textbook curiosity. A well-known 2001 study reported
+that Oscar-winning actors lived almost 4 years longer than other actors,
+but it counted winners' lives from birth, including the years before they
+won. Nobody can die before winning an Oscar and still be a winner. A
+reanalysis that handled the immortal time properly found a difference of
+about 1 year, with a confidence interval that included zero
+[@sylvestre2006].
+
+### How to avoid it
+
+There are two standard fixes. Both make sure that patients are only
+counted as "treated" from the moment they actually start treatment.
+
+**A landmark analysis.** Pick a time point (the *landmark*), e.g. 1 year.
+Keep only patients still alive and followed at the landmark, classify them
+by their status at that time, and start the clock again there:
+
+```{r}
+#| label: immortal-landmark
+# Landmark at 1 year: keep patients still alive at 1 year,
+# grouped by whether they had started treatment by then
+imm$start_time <- start_time
+lm1 <- subset(imm, time > 1)
+lm1$treated_by_1 <- as.numeric(lm1$start_time < 1)
+
+survdiff(Surv(time, status) ~ treated_by_1, data = lm1)
+```
+
+At the landmark, the two groups have the same survival (p = 0.4), which is
+the correct answer. The drawbacks are that the result depends on the
+landmark you choose, and patients who start treatment after it are counted
+as untreated.
+
+**A time-varying covariate in a Cox model.** Each patient counts as
+untreated until the day they start treatment, and treated afterwards. To do
+this, each patient's follow-up is split into periods, one row per period.
+A patient who starts treatment at 0.2 years and dies at 1.9 years gets two
+rows: untreated from 0 to 0.2, and treated from 0.2 to 1.9. The
+`tmerge()` function in the survival package builds these rows:
+
+```{r}
+#| label: immortal-tmerge
+imm$id <- seq_len(nrow(imm))
+
+# Treatment start time, or NA if the patient never started
+imm$treat_start <- ifelse(imm$start_time < imm$time, imm$start_time, NA)
+
+tv <- tmerge(imm[, c("id", "time", "status")], imm, id = id,
+             death   = event(time, status),
+             treated = tdc(treat_start))
+
+head(tv[, c("id", "tstart", "tstop", "death", "treated")])
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+- Each row is one **period** of a patient's follow-up, from `tstart` to
+  `tstop`.
+- `treated` is 0 before treatment starts and 1 afterwards. `tdc()` stands for
+  *time-dependent covariate*.
+- `death` is 1 only in the period that ends with a death.
+- Patient 2 started treatment at 0.22 years and died at 1.89 years, so has
+  two rows. Patient 1 died at 0.57 years, before their treatment was due, so
+  has one row and is never treated.
+:::
+
+The Cox model then uses the *counting-process* form of `Surv()`, with a
+start and a stop time:
+
+```{r}
+#| label: immortal-tv-cox
+coxph(Surv(tstart, tstop, death) ~ treated, data = tv) |>
+  broom::tidy(exponentiate = TRUE, conf.int = TRUE) |>
+  select(term, estimate, conf.low, conf.high, p.value)
+```
+
+The HR is 0.95 (95% CI 0.76 to 1.18): close to 1, the truth. The waiting
+time is now correctly counted as untreated time.
+
+### Interactive app: watching immortal time happen {#sec-app-immortal}
+
+Here you can see the immortal time, and how much it distorts the naive
+analysis. Some patients would be offered treatment at some point during
+their first few years of follow-up; the rest never would. Each line in the
+timeline is a patient:
+
+- an **orange** stretch is waiting time before treatment starts: immortal
+  time, since a patient who died then would never have joined the treated
+  group;
+- a **blue** stretch is time on treatment;
+- a **grey** line is a patient who was never treated. A small orange tick
+  past the end of a grey line marks where an untreated patient *would have*
+  started treatment if they hadn't died first, like patient B above.
+
+The estimates compare the naive analysis (grouping by "ever treated") with
+a landmark analysis and a time-varying Cox model.
+
+::: {.app}
+```{ojs}
+//| echo: false
+viewof imScen = Inputs.radio(["Treatment does nothing", "Short wait (up to 3 months)", "Long wait (up to 3 years)", "Treatment really works (HR 0.7)", "Treatment is harmful (HR 1.5)", "Everyone is eventually treated"], {value: "Treatment does nothing", label: "Scenario"})
+imP = ({"Treatment does nothing": {}, "Short wait (up to 3 months)": {"wait": 0.25}, "Long wait (up to 3 years)": {"wait": 3}, "Treatment really works (HR 0.7)": {"hr": 0.7}, "Treatment is harmful (HR 1.5)": {"hr": 1.5}, "Everyone is eventually treated": {"p": 1}})[imScen]
+viewof im = Inputs.form({
+  hr:   Inputs.range([0.5, 2], {value: imP.hr ?? 1, step: 0.05, label: "TRUE hazard ratio for treatment"}),
+  wait: Inputs.range([0.25, 3], {value: imP.wait ?? 2, step: 0.25, label: "Treatment starts within (years)"}),
+  p:    Inputs.range([0.2, 1], {value: imP.p ?? 0.5, step: 0.1, label: "Proportion who would ever start"}),
+  L:    Inputs.range([0.25, 2], {value: imP.L ?? 1, step: 0.25, label: "Landmark (years)"}),
+  n:    Inputs.range([200, 1000], {value: imP.n ?? 400, step: 100, label: "Patients"}),
+  seed: Inputs.range([1, 100], {value: imP.seed ?? 4, step: 1, label: "Random seed (new study)"})
+}, {template: formGrid})
+```
+
+```{ojs}
+//| echo: false
+imData = simImmortal({n: im.n, rate: 0.35, hr: im.hr, maxWait: im.wait, fu: 3, seed: im.seed, pTreat: im.p})
+imEst = immortalEstimates(imData, im.L)
+```
+
+```{ojs}
+//| echo: false
+{
+  const show = imData.slice(0, 30);
+  const segs = [];
+  for (const p of show) {
+    if (p.treated) {
+      segs.push({id: p.id, x1: 0, x2: p.start, kind: "Waiting (immortal) time"});
+      segs.push({id: p.id, x1: p.start, x2: p.time, kind: "On treatment"});
+    } else segs.push({id: p.id, x1: 0, x2: p.time, kind: "Never treated"});
+  }
+  const ticks = show.filter(p => !p.treated && p.start < 3);
+  return Plot.plot({
+    height: 120 + 13 * show.length, marginLeft: 50,
+    x: {label: "Years since time zero →", domain: [0, 3]},
+    y: {label: "Patient", domain: show.map(p => p.id), tickFormat: d => d},
+    color: {legend: true, domain: ["Waiting (immortal) time", "On treatment", "Never treated"], range: ["#E69F00", "#0072B2", "#999999"]},
+    marks: [
+      Plot.ruleY(segs, {y: "id", x1: "x1", x2: "x2", stroke: "kind", strokeWidth: 3}),
+      Plot.dot(show.filter(p => p.status), {y: "id", x: "time", fill: "black", r: 3.5}),
+      Plot.dot(show.filter(p => !p.status), {y: "id", x: "time", stroke: "black", symbol: "times", r: 4}),
+      Plot.tickX(ticks, {y: "id", x: "start", stroke: "#E69F00", strokeWidth: 2})
+    ]
+  });
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const f = e => isFinite(e.hr) ? e.hr.toFixed(2) : "–";
+  const ci = e => isFinite(e.hr) ? `95% CI ${e.lower.toFixed(2)} to ${e.upper.toFixed(2)}` : "";
+  const nT = imData.filter(p => p.treated).length;
+  const unt = imData.filter(p => !p.treated);
+  const diedWaiting = unt.filter(p => p.start < Infinity).length;
+  return html`<div class="estimates">
+  <div class="est"><span>True HR</span><b>${im.hr.toFixed(2)}</b><small>&nbsp;</small></div>
+  <div class="est bad"><span>Naive: ever vs never treated</span><b>${f(imEst.naive)}</b><small>${ci(imEst.naive)}</small></div>
+  <div class="est good"><span>Landmark at ${im.L} year${im.L === 1 ? "" : "s"}</span><b>${f(imEst.lm)}</b><small>${isFinite(imEst.lm.hr) ? ci(imEst.lm) : "Everyone alive at the landmark is in the same group: choose an earlier landmark"}</small></div>
+  <div class="est good"><span>Time-varying Cox model</span><b>${f(imEst.tv)}</b><small>${ci(imEst.tv)}</small></div>
+  </div>
+  <p style="margin-top:.5em">${nT} patients started treatment and ${unt.length} never did.
+  <span style="color:#D55E00">${diedWaiting} of the never-treated patients died while waiting for treatment that was due to start.</span>
+  The landmark analysis uses the ${imEst.nL} patients still alive at ${im.L} year${im.L === 1 ? "" : "s"}.</p>`;
+}
+```
+:::
+
+::: {.callout-tip}
+## Things to try
+For each one, **predict first**, then pick the scenario and check.
+
+1. **Predict:** if treatment does nothing, what will the naive HR be? *Then*
+   look at the default scenario, **Treatment does nothing**, and find some
+   orange ticks past the end of grey lines.
+2. **Predict:** does the bias get bigger or smaller if treatment starts
+   sooner? Or later? *Then* pick **Short wait (up to 3 months)** and **Long
+   wait (up to 3 years)**.
+3. **Predict:** if treatment is genuinely **harmful** (HR 1.5), could the
+   naive analysis still make it look protective? *Then* pick **Treatment is
+   harmful (HR 1.5)**. Try **Treatment really works (HR 0.7)** too.
+4. **Predict:** what happens if everyone would eventually be treated, as in
+   the simulation earlier in this section? *Then* pick **Everyone is
+   eventually treated**.
+5. On the default scenario, move the **landmark** between 0.5 and 1.5
+   years. What happens to the landmark estimate and to the number of
+   patients it uses?
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Answers: what you should see
+1. **About 0.43**, a 57% lower hazard, from a treatment that does nothing
+   (95% CI 0.32 to 0.57). 54 of the 274 never-treated patients died while
+   waiting for treatment: each of those deaths is counted against the
+   "never treated" group. The landmark analysis (1.03) and the time-varying
+   model (0.99) both get it right.
+2. **The longer the wait, the bigger the bias.** With treatment starting
+   within 3 months, there's little immortal time and the naive HR is 0.78.
+   With waits of up to 3 years, it's 0.35. The corrected methods stay
+   close to 1 (allowing for chance).
+3. **Yes.** With a true HR of 1.5, the naive HR is 0.58: a harmful
+   treatment looks protective. The time-varying model gets 1.45, close to
+   the truth. With a true HR of 0.7, the naive analysis exaggerates the
+   benefit (0.29), while the time-varying model gives 0.64. The landmark
+   estimate (0.86) is pulled towards 1: some patients in its "untreated"
+   group start treatment after the landmark and benefit from it.
+4. **The bias becomes extreme:** naive HR 0.07. Now the only way to be
+   "never treated" is to die before treatment is due, which is what the
+   simulation earlier in this section showed. The time-varying model still
+   gets 0.96.
+5. An earlier landmark uses more patients (324 at 0.5 years) but leaves more
+   patients to start treatment *after* it. A later landmark uses fewer (225 at
+   1.5 years), so the estimate is less precise. Here all of them are close to
+   the truth of 1 (1.05, 1.03 and 1.16). The time-varying model avoids having
+   to choose.
+:::
+
+### Real data: the Stanford heart transplant study
+
+The classic example comes from the Stanford heart transplant programme,
+which started in 1967. Patients were accepted onto the programme and then
+waited for a donor heart. Some received one; others died while waiting. Early
+analyses compared patients who received a transplant with those who didn't,
+and found a huge benefit. Later analyses showed that much of that benefit
+was immortal time [@gail1972; @crowley1977].
+
+The survival package has the data in two forms. `jasa` has one row per
+patient. Here's the naive analysis, comparing patients who **ever** had a
+transplant with those who didn't, from the day they joined the programme:
+
+```{r}
+#| label: stanford-naive
+jasa <- survival::jasa
+jasa$futime <- as.numeric(jasa$fu.date - jasa$accept.dt)   # days in the programme
+
+coxph(Surv(futime, fustat) ~ transplant, data = jasa) |>
+  broom::tidy(exponentiate = TRUE, conf.int = TRUE) |>
+  select(term, estimate, conf.low, conf.high, p.value)
+```
+
+A hazard ratio of 0.27: transplant appears to cut the hazard of death by
+nearly three-quarters. But the patients who died while waiting all count in
+the "no transplant" group. `heart` has the same patients in counting-process
+form, already split at the time of transplant, so `transplant` is a
+time-varying covariate. You'll fit that model in the exercise at the end of
+this chapter.
+
+The key lesson for all of this: make sure **time zero is the same moment
+for everyone**, and that group membership is known at that moment
+(@sec-survival-data). In the simulated cohort in Chapters 5–7, everyone's
+clock starts when the treatment decision is made, so there is no immortal
+time.
+
+## Quick quiz {.unnumbered}
+
+Choose an answer to each question. You'll get instant feedback and can change your answer as often as you like.
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "In a study, 30% of patients are lost to follow-up. Those who were lost had more severe disease at the start. What is the main concern?",
+  "options": [
+   "None: KM handles censored patients correctly",
+   "The censoring is probably informative, so the KM curve may be too optimistic",
+   "The sample is now too small to analyse",
+   "The log-rank test can't be used with that much censoring"
+  ],
+  "answer": 1,
+  "why": "KM assumes the censored patients would have done as well as those who stayed. If the sicker patients left, the patients who remain are healthier than the group as a whole, so the curve looks too good.",
+  "hints": [
+   "KM handles censoring correctly only if it's non-informative. Is it here?",
+   "",
+   "Less data means wider CIs, but that's not the main problem.",
+   "The log-rank test also assumes non-informative censoring. Lots of censoring alone isn't the issue."
+  ]
+ },
+ {
+  "q": "You study time to relapse. Some patients die before relapsing, and you treat those deaths as censored. 1 − KM gives a 5-year relapse risk of 40%. What is the problem?",
+  "options": [
+   "None: patients who die are censored, just like those lost to follow-up",
+   "It overstates the risk, because it treats patients who died as if they could still relapse",
+   "It understates the risk, because deaths are not counted as relapses",
+   "KM can't be used for relapse, only for death"
+  ],
+  "answer": 1,
+  "why": "Death is a competing risk: a patient who has died can never relapse. 1 − KM assumes they're still at risk, so it overstates the probability of relapse. The cumulative incidence function, from <code>survfit()</code> with a factor event variable, gives the right answer.",
+  "hints": [
+   "Someone lost to follow-up could still relapse later. Can someone who has died?",
+   "",
+   "Think about which way the error goes: are the dead patients counted as still at risk of relapse?",
+   "KM works for any time-to-event outcome. The problem is what the deaths are treated as."
+  ]
+ },
+ {
+  "q": "A study compares patients who <em>ever</em> received a transplant with those who never did, with time zero at diagnosis. Transplanted patients survive much longer. Why should you be suspicious?",
+  "options": [
+   "Transplanted patients are usually younger",
+   "Transplanted patients had to survive until their transplant, so their waiting time is 'immortal'",
+   "The log-rank test can't compare groups of different sizes",
+   "Kaplan–Meier curves can't be used for surgical outcomes"
+  ],
+  "answer": 1,
+  "why": "Patients who died while waiting were put in the 'never transplanted' group. The transplanted group gets credit for time during which they could not die: immortal time bias. A landmark analysis or a time-varying covariate avoids it.",
+  "hints": [
+   "That may be true (it's confounding), but there is a bigger problem built into how the groups were formed, even if the groups were identical at diagnosis.",
+   "",
+   "The log-rank test handles groups of different sizes without any problem.",
+   "KM curves work for any time-to-event outcome. The problem is how the groups were defined."
+  ]
+ },
+ {
+  "q": "In the MGUS data, the cause-specific HR for progression in men vs women is about 1, but men are less likely to progress by 10 years. How can both be true?",
+  "options": [
+   "One of the analyses must be wrong",
+   "Men progress at the same rate while alive, but more of them die first",
+   "The cause-specific model ignores age",
+   "Cumulative incidence can't be compared between groups"
+  ],
+  "answer": 1,
+  "why": "The cause-specific HR compares the rate of progression among patients still alive. The cumulative incidence also depends on how many patients survive long enough to progress, and men die faster.",
+  "hints": [
+   "They answer different questions, so they can both be right.",
+   "",
+   "Both models were adjusted for age.",
+   "<code>survfit()</code> gives cumulative incidences for each group, and they can be compared."
+  ]
+ }
+])
+```
+
+## Exercise
+
+### Exercise 4.1
+
+The Stanford heart transplant data are loaded in two forms: `jasa`, with one
+row per patient, and `heart`, with each patient's follow-up split at the
+time of their transplant. The exercise has two parts, each checked
+separately.
+
+#### Part 1: the naive analysis {.unnumbered}
+
+Fit a Cox model comparing patients who **ever** had a transplant
+(`transplant`) with those who didn't, using `futime` (days in the
+programme) and `fustat` (1 = died). Make the model the last line.
+
+```{webr}
+#| setup: true
+#| exercise: ex_stanford_naive
+library(survival)
+jasa <- survival::jasa
+jasa$futime <- as.numeric(jasa$fu.date - jasa$accept.dt)
+heart <- survival::heart
+```
+
+```{webr}
+#| exercise: ex_stanford_naive
+#| caption: "Exercise 4.1, part 1: the naive analysis"
+coxph(Surv(______, ______) ~ transplant, data = jasa)
+```
+
+::: {.hint exercise="ex_stanford_naive"}
+::: {.callout-note collapse="false"}
+## Hint 1
+The time is `futime` and the event is `fustat`.
+:::
+:::
+
+::: {.solution exercise="ex_stanford_naive"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+coxph(Surv(futime, fustat) ~ transplant, data = jasa)
+```
+
+The naive HR is 0.27 (95% CI 0.17 to 0.43): transplant looks as if it cuts
+the hazard of death by 73%. But every patient who died while waiting for a
+heart counts in the "no transplant" group.
+:::
+:::
+
+```{webr}
+#| exercise: ex_stanford_naive
+#| check: true
+r <- .result
+if (!inherits(r, "coxph") || r$n != nrow(jasa)) {
+  list(correct = FALSE, message = "Fit <code>coxph(Surv(futime, fustat) ~ transplant, data = jasa)</code>.")
+} else if (abs(exp(coef(r))[[1]] - 0.27) > 0.02) {
+  list(correct = FALSE, message = "Use <code>futime</code> as the time and <code>fustat</code> as the event.")
+} else {
+  list(correct = TRUE, message = "Correct! HR = 0.27. Transplant looks hugely protective, but the waiting time before transplant is immortal time.")
+}
+```
+
+#### Part 2: transplant as a time-varying covariate {.unnumbered}
+
+In `heart`, each row is a period of follow-up from `start` to `stop` (days),
+`event` is 1 if the period ended in death, and `transplant` is 0 before the
+transplant and 1 afterwards. Look at the first few rows, then fit the Cox
+model with transplant as a time-varying covariate (make that the last line).
+How does the HR compare with part 1?
+
+```{webr}
+#| setup: true
+#| exercise: ex_stanford_tv
+library(survival)
+jasa <- survival::jasa
+jasa$futime <- as.numeric(jasa$fu.date - jasa$accept.dt)
+heart <- survival::heart
+```
+
+```{webr}
+#| exercise: ex_stanford_tv
+#| caption: "Exercise 4.1, part 2: a time-varying covariate"
+head(heart)
+
+coxph(Surv(______, ______, ______) ~ transplant, data = heart)
+```
+
+::: {.hint exercise="ex_stanford_tv"}
+::: {.callout-note collapse="false"}
+## Hint 1
+The counting-process form of `Surv()` takes three arguments: the start time, the stop time and the event.
+:::
+:::
+
+::: {.hint exercise="ex_stanford_tv"}
+::: {.callout-note collapse="false"}
+## Hint 2
+`Surv(start, stop, event)`.
+:::
+:::
+
+::: {.solution exercise="ex_stanford_tv"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+head(heart)
+coxph(Surv(start, stop, event) ~ transplant, data = heart)
+```
+
+Patients who received a transplant have two rows: one before the
+transplant (`transplant = 0`) and one after (`transplant = 1`). With
+transplant as a time-varying covariate, the HR is 1.14 (95% CI 0.63 to
+2.05). There is no clear evidence that transplant improved survival in these
+data. The apparent 73% reduction was almost entirely immortal time bias.
+
+(This doesn't show that heart transplantation is useless: results have
+improved enormously since the 1960s, and it is now a standard treatment. The
+point is that the naive comparison is badly biased.)
+:::
+:::
+
+```{webr}
+#| exercise: ex_stanford_tv
+#| check: true
+r <- .result
+if (!inherits(r, "coxph") || r$n != nrow(heart)) {
+  list(correct = FALSE, message = "Fit the model to the <code>heart</code> data, with <code>Surv(start, stop, event)</code>.")
+} else if (abs(exp(coef(r))[[1]] - 1.14) > 0.02) {
+  list(correct = FALSE, message = "Use <code>Surv(start, stop, event)</code>: start time, stop time, then the event.")
+} else {
+  list(correct = TRUE, message = "Correct! HR = 1.14 (95% CI 0.63 to 2.05). Counting the waiting time as untreated removes the huge apparent benefit.")
+}
+```
+
+## Summary
+
+::: {.callout-important icon="false"}
+## Key points
+- **Informative censoring:** if the patients who drop out differ in risk from those who stay, KM and Cox estimates are biased. It can't be detected from the survival data alone, so compare the patients who were lost with those who stayed, and allow for measured reasons for drop-out.
+- **Competing risks:** treating a competing event (such as death) as censoring makes 1 − KM overstate the risk. Use the **cumulative incidence function**, from `survfit()` with a factor event. A **cause-specific** Cox model compares rates; a **Fine–Gray** model compares probabilities.
+- **Immortal time bias:** grouping patients by something that happens after time zero gives that group a spurious advantage. Use a **landmark analysis** or a **time-varying covariate** (`tmerge()` and `Surv(start, stop, event)`).
+- In every case, think carefully about **who is at risk, and when**, and make time zero the same for everyone.
+:::
+
+**Answering the question.** All three traps produce clean-looking output and convincing p-values. In the examples here, informative censoring made 2-year survival look like 50% when it was 35%; ignoring competing deaths tripled the apparent 30-year risk of MGUS progression, from 13% to 42%; and immortal time turned a heart transplant HR of 1.14 (Exercise 4.1) into an apparent 73% reduction in the hazard of death. The fixes are standard and use the same survival package, as long as you recognise the trap first.
+
+## Further reading
+
+All of these are free to read online unless marked otherwise. The whole
+book's reading list, grouped by topic, is in @sec-further-reading.
+
+- @austin2016cr: **Start here** for competing risks: cumulative incidence, cause-specific and Fine–Gray models, with examples.
+- @suissa2008: The classic description of immortal time bias, with real examples from drug studies and how to avoid it. (May need institutional access.)
+- @survival_timedep: The survival package's guide to time-dependent covariates, including `tmerge()`, landmark analysis and the Stanford heart transplant data.
+- @leung1997: *More advanced.* The different kinds of censoring, and why the non-informative censoring assumption matters. (May need institutional access.)

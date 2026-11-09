@@ -1,0 +1,550 @@
+---
+format:
+  live-html:
+    webr:
+      packages:
+        - survival
+---
+
+# Time-to-event data and censoring {#sec-survival-data}
+
+```{r}
+#| label: setup-ch1
+#| include: false
+library(survival)
+library(dplyr)
+```
+
+{{< include ./_extensions/r-wasm/live/_knitr.qmd >}}
+
+::: {.callout-note icon="false"}
+## In this chapter
+**The question.** Patients with advanced lung cancer are followed up after joining a study. Some die during follow-up, but many are still alive when the study ends. How can we describe how long these patients survive?
+
+**By the end of this chapter you will be able to:**
+
+- recognise time-to-event data and its three ingredients: a time origin, an event and a time scale;
+- explain what **censoring** is, and why ignoring it gives the wrong answer;
+- state the assumption of **non-informative censoring**;
+- create a survival outcome in R with `Surv()`.
+:::
+
+This chapter has your first **live R exercises**: code boxes you can edit
+and run in the page itself. @sec-live-exercises explains how they work.
+
+## What makes survival data special?
+
+In **survival analysis** (also called *time-to-event analysis*), the outcome
+is the *time until an event happens*. The event might be death, relapse,
+hospital discharge, injury, or a machine failing. Every observation needs
+three things:
+
+1. A clear **time origin**. When does the clock start? Diagnosis,
+   randomisation, the start of treatment?
+2. A clear **event** definition.
+3. A **time scale**. Days, months or years since the origin, or age.
+
+What makes this kind of data special is **censoring**. For some people the
+study ends, or they drop out, *before* we see their event. All we know is
+that their event time is *longer than* the time we observed. The word
+comes from *censorship*: like a censor blacking out the rest of a
+document, the rest of the patient's story is hidden from us.
+
+::: {.callout-important}
+## Censoring is not missing data
+A censored observation still tells us something useful. Suppose a patient
+was last seen alive and event-free after 2.3 years of follow-up. We don't
+know when they will die, but we do know they survived at least 2.3 years. Throwing that information away, or
+treating 2.3 years as if it were the event time, biases the results.
+Survival methods use exactly what we know, and nothing more.
+:::
+
+### Types of censoring
+
+All the censoring in this book is **right censoring**: we know the event
+happened *after* a certain time (to the right of it, on a timeline). It
+has three common causes:
+
+- **Administrative censoring.** The study ends. Patients who joined late
+  are followed for less time.
+- **Loss to follow-up.** The patient moves away or withdraws.
+- **Competing events.** The patient dies of something else before the
+  event of interest. Strictly, this isn't censoring at all: someone who has
+  died can never relapse. Treating these deaths as censored is a common
+  mistake (@sec-competing).
+
+Kaplan–Meier and Cox methods assume that censoring is **non-informative**.
+At any time, people who are censored must have the same future risk as
+people who stay under observation. If the sickest patients drop out because
+they're sick, this assumption is broken. Chapter 4 has an app that shows
+what happens then (@sec-informative).
+
+## Why not just use the average time, or logistic regression?
+
+- The **mean observed time** is biased downwards, because censored times
+  are shorter than the true event times.
+- Using the **mean among people who had the event** throws away the
+  censored people. It is biased towards fast events.
+- **Logistic regression** on "died: yes/no" ignores *when* the event
+  happened. It also mixes up people followed for 1 month with people
+  followed for 5 years.
+
+The app below makes this concrete.
+
+## Interactive app: what censoring does {#sec-app-censoring}
+
+Each line is a patient. Patients join the study at different times during
+the *recruitment period*, and the study stops at a fixed calendar date. A
+filled dot ● is an observed event. A cross ✕ is a censored observation.
+Tick *Show what we never see* to reveal the true event times hidden by
+censoring.
+
+```{ojs}
+//| echo: false
+import {makeRandom, mean, quiz} from "./js/survtools.js"
+```
+
+::: {.app}
+```{ojs}
+//| echo: false
+viewof c1Scen = Inputs.radio(["Default", "Short study (2 years)", "No drop-out, 10-year study"], {value: "Default", label: "Scenario"})
+c1P = ({"Default": {}, "Short study (2 years)": {"study": 2}, "No drop-out, 10-year study": {"drop": 0, "study": 10}})[c1Scen]
+viewof c1 = Inputs.form({
+  n:       Inputs.range([5, 40],  {value: c1P.n ?? 20,  step: 1,   label: "Patients shown"}),
+  accrual: Inputs.range([0, 4],   {value: c1P.accrual ?? 2,   step: 0.5, label: "Recruitment period (yrs)"}),
+  study:   Inputs.range([1, 10],  {value: c1P.study ?? 5,   step: 0.5, label: "Study length (yrs)"}),
+  median:  Inputs.range([0.5, 8], {value: c1P.median ?? 3,   step: 0.5, label: "True median survival (yrs)"}),
+  drop:    Inputs.range([0, 0.5], {value: c1P.drop ?? 0.1, step: 0.05, label: "Drop-out rate (per yr)"}),
+  seed:    Inputs.range([1, 100], {value: c1P.seed ?? 7,   step: 1,   label: "Random seed"})
+}, {template: formGrid})
+formGrid = inputs => html`<div class="form-grid">${Object.values(inputs)}</div>`
+viewof c1view = Inputs.radio(["Calendar time", "Time since entry"], {value: "Calendar time", label: "Time axis"})
+viewof c1truth = Inputs.toggle({label: "Show what we never see", value: false})
+```
+
+```{ojs}
+//| echo: false
+function simCensoring(p, n, seed) {
+  const r = makeRandom(seed);
+  const rate = Math.LN2 / p.median;
+  const studyEnd = Math.max(p.study, p.accrual);
+  return Array.from({length: n}, (_, i) => {
+    const entry = r.unif() * p.accrual;
+    const tEvent = r.exp(rate);
+    const tDrop = p.drop > 0 ? r.exp(p.drop) : Infinity;
+    const tAdmin = studyEnd - entry;
+    const time = Math.min(tEvent, tDrop, tAdmin);
+    const status = tEvent <= Math.min(tDrop, tAdmin) ? 1 : 0;
+    const reason = status ? "Event" : (tDrop < tAdmin ? "Censored: dropped out" : "Censored: study ended");
+    return {id: i + 1, entry, tEvent, time, status, reason};
+  });
+}
+c1data = simCensoring(c1, c1.n, c1.seed)
+c1big  = simCensoring(c1, 5000, c1.seed + 1000)
+```
+
+```{ojs}
+//| echo: false
+{
+  const cal = c1view === "Calendar time";
+  const studyEnd = Math.max(c1.study, c1.accrual);
+  const d = c1data.map(p => ({...p,
+    x0: cal ? p.entry : 0,
+    x1: cal ? p.entry + p.time : p.time,
+    xt: cal ? p.entry + p.tEvent : p.tEvent}));
+  const hidden = d.filter(p => !p.status);
+  return Plot.plot({
+    height: 120 + 14 * c1.n, marginLeft: 50,
+    x: {label: cal ? "Calendar time since study opened (years) →" : "Time since patient entered (years) →",
+        domain: [0, Math.max(studyEnd, ...(c1truth ? d.map(p => Math.min(p.xt, studyEnd * 2)) : [studyEnd]))]},
+    y: {label: "Patient", tickFormat: d => d, domain: d.map(p => p.id)},
+    color: {legend: true, domain: ["Event", "Censored: study ended", "Censored: dropped out"],
+            range: ["#D55E00", "#0072B2", "#CC79A7"]},
+    marks: [
+      cal ? Plot.ruleX([studyEnd], {stroke: "#888", strokeDasharray: "4,3"}) : null,
+      cal && c1.accrual > 0 ? Plot.rectX([{x1: 0, x2: c1.accrual}], {x1: "x1", x2: "x2", fill: "#999", fillOpacity: 0.08}) : null,
+      c1truth ? Plot.ruleY(hidden, {y: "id", x1: "x1", x2: p => Math.min(p.xt, studyEnd * 2), stroke: "#aaa", strokeDasharray: "2,3"}) : null,
+      c1truth ? Plot.dot(hidden, {y: "id", x: p => Math.min(p.xt, studyEnd * 2), stroke: "#aaa", r: 3.5}) : null,
+      Plot.ruleY(d, {y: "id", x1: "x0", x2: "x1", stroke: "reason", strokeWidth: 2.5}),
+      Plot.dot(d.filter(p => p.status), {y: "id", x: "x1", fill: "reason", r: 4.5}),
+      Plot.dot(d.filter(p => !p.status), {y: "id", x: "x1", stroke: "reason", symbol: "times", r: 5, strokeWidth: 2})
+    ]
+  });
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const big = c1big;
+  const trueMean = c1.median / Math.LN2;
+  const rows = [
+    {Quantity: "True mean survival time", Value: trueMean, Comment: "What we want to know"},
+    {Quantity: "Mean of observed times (ignoring censoring)", Value: mean(big.map(d => d.time)), Comment: "Too low: censored times are cut short"},
+    {Quantity: "Mean time among those with an event", Value: mean(big.filter(d => d.status).map(d => d.time)) || NaN, Comment: "Too low: long survivors are left out"},
+    {Quantity: "Proportion censored", Value: mean(big.map(d => 1 - d.status)), Comment: "With these settings, over 5,000 simulated patients"}
+  ];
+  return Inputs.table(rows, {format: {Value: v => isNaN(v) ? "–" : v.toFixed(2)}, layout: "auto", rows: 5});
+}
+```
+:::
+
+::: {.callout-tip}
+## Things to try
+For each one, **predict first**: decide what you expect to see, then pick the scenario and check. Committing to a prediction, even a wrong one, makes the result stick.
+
+1. **Predict:** if every patient's line started at 0, which patients would
+   have the shortest lines? *Then* switch the time axis to **Time since
+   entry**. This is how survival software sees the data.
+2. **Predict:** if the study lasts only 2 years, will the two naive averages
+   move closer to the truth or further away? *Then* pick **Short study
+   (2 years)**.
+3. **Predict:** what happens to the naive averages when almost no one is
+   censored? *Then* pick **No drop-out, 10-year study**.
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Answers: what you should see
+1. **Time since entry.** Every line now starts at 0. Patients who joined
+   near the end of the recruitment period have the shortest lines ending in
+   a blue ✕. They were censored early because the study closed, not because
+   of anything about their health. That's why administrative censoring is
+   usually *non-informative*.
+2. **Study length 2 years.** Most lines now end in a ✕. With the other
+   settings at their defaults, about 80% of patients are censored. The naive
+   mean falls to about 0.8 years (truth: 4.3), and the mean among those with
+   an event to about 0.6 years. Both get worse the shorter the follow-up.
+   The Kaplan–Meier method (Chapter 2) uses the censored patients properly.
+3. **No drop-out, 10-year study.** Only people still alive after 8–10 years
+   are censored, about 13% of patients. The naive mean rises to about
+   3.8 years, much closer to 4.3. It's still too low, because the few
+   censored patients are the longest survivors. Censoring causes the bias:
+   the less of it there is, the smaller the bias.
+:::
+
+## Survival data in R: the `Surv()` object
+
+We'll use the `lung` dataset from the **survival** package. It has
+survival times (in days) for 228 patients with advanced lung cancer.
+
+```{r}
+#| label: lung-head
+head(survival::lung)
+```
+
+The important columns are `time` (days of follow-up) and `status`. Note
+that in this dataset `status` is coded **1 = censored, 2 = dead**. R
+accepts 1/2, but 0/1 or `FALSE/TRUE` are clearer, so we recode. We also
+turn `sex` into a labelled factor.
+
+```{r}
+#| label: lung-clean
+lung <- survival::lung |>
+  mutate(
+    status = status - 1,                              # 0 = censored, 1 = died
+    sex    = factor(sex, levels = 1:2, labels = c("Male", "Female")),
+    time_m = time / 30.44                             # follow-up in months
+  )
+
+table(lung$status)        # 63 censored, 165 deaths
+```
+
+`Surv(time, status)` combines the two columns into one survival
+outcome. Censored times are printed with a `+`:
+
+```{r}
+#| label: surv-object
+Surv(lung$time, lung$status)[1:15]
+```
+
+Almost every survival function in R takes a formula with `Surv()` on the
+left-hand side, for example:
+
+```r
+survfit(Surv(time, status) ~ sex, data = lung)         # Kaplan-Meier, Ch 2
+coxph(Surv(time, status) ~ sex + age, data = lung)     # Cox model, Ch 3
+```
+
+:::: {.optional}
+::: {.callout-note collapse="true" icon="false"}
+## Going further (optional): other forms of `Surv()`
+- `Surv(start, stop, event)`: *counting-process* form. Use it for
+  time-varying covariates and delayed entry (left truncation).
+- `Surv(time, event, type = "interval")`: interval-censored data, where you
+  only know the event happened between two visits.
+:::
+::::
+
+### How the live exercises work {#sec-live-exercises}
+
+::: {.callout-note icon="false"}
+## Live R exercises
+The exercises in this book run **real R inside the web page**. There's
+nothing to install.
+
+- The first time you open a page with exercises, R loads in the background.
+  This takes 10–30 seconds, and it's quicker on later visits. Some exercises
+  also download extra packages the first time you run them, so that first
+  run is slower.
+- Edit the code in the box, then click **Run Code**. Output and plots appear
+  underneath.
+- Your answer is **checked automatically**, with feedback.
+- Stuck? Use **Show Hint** for a nudge, or **Show Solution** for the full
+  answer. **Start Over** resets the code.
+- Each exercise box starts fresh, with its data already loaded, so you can
+  do them in any order.
+
+All of this code also works in RStudio on your own computer (see @sec-setup).
+:::
+
+### Practice: fill in the blanks
+
+Replace each `______` with the right code, then click **Run Code**.
+
+```{webr}
+#| setup: true
+#| exercise: ex_surv
+library(survival)
+```
+
+```{webr}
+#| exercise: ex_surv
+#| caption: "Practice: a survival outcome in R"
+lung <- survival::lung
+
+# Recode status from 1 = censored, 2 = died, to 0/1
+lung$status <- lung$______ - 1
+
+# The first 10 survival times
+Surv(lung$______, lung$______)[1:10]
+
+# How many died (1) and how many were censored (0)?
+table(lung$______)
+```
+
+::: {.hint exercise="ex_surv"}
+::: {.callout-note collapse="false"}
+## Hint 1
+`status` is the column being recoded. `Surv()` takes the time column first, then the status column.
+:::
+:::
+
+::: {.hint exercise="ex_surv"}
+::: {.callout-note collapse="false"}
+## Hint 2
+Every blank is either `time` or `status`.
+:::
+:::
+
+::: {.solution exercise="ex_surv"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+lung <- survival::lung
+lung$status <- lung$status - 1
+Surv(lung$time, lung$status)[1:10]
+table(lung$status)
+```
+
+The censored patients are the ones marked `+`: among the first 10, the 3rd
+(1010+ days) and the 6th (1022+ days). 165 patients died and 63 were
+censored.
+:::
+:::
+
+```{webr}
+#| exercise: ex_surv
+#| check: true
+env <- .envir_result
+if (is.null(env$lung) || !identical(env$lung$status, survival::lung$status - 1)) {
+  list(correct = FALSE,
+       message = "The recoding isn't right yet: the first blank should make <code>status</code> 0 for censored and 1 for died (<code>lung$status - 1</code>).")
+} else if (!grepl("Surv\\(\\s*lung\\$time\\s*,\\s*lung\\$status", .user_code)) {
+  list(correct = FALSE,
+       message = "<code>Surv()</code> takes the follow-up time first, then the status: <code>Surv(lung$time, lung$status)</code>.")
+} else if (!is.table(.result) || !identical(as.vector(.result), c(63L, 165L))) {
+  list(correct = FALSE,
+       message = "The last line should count the recoded status values: <code>table(lung$status)</code>.")
+} else {
+  list(correct = TRUE,
+       message = "Correct! 165 patients died and 63 were censored. Which of the first 10 were censored? (Look for the +.)")
+}
+```
+
+## Quick quiz {.unnumbered}
+
+Choose an answer to each question. You'll get instant feedback and can change your answer as often as you like.
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "A patient joined the study 2 years before it closed and was alive on the closing date. How should their record be entered?",
+  "options": [
+   "Event at 2 years",
+   "Censored at 2 years",
+   "Excluded, because their outcome is missing",
+   "Censored at the total length of the study"
+  ],
+  "answer": 1,
+  "why": "We know they were event-free for 2 years, and nothing after that. So time = 2, status = 0.",
+  "hints": [
+   "They didn't have the event, so status must be 0 (censored).",
+   "",
+   "Excluding them throws away 2 years of event-free follow-up and biases survival downwards.",
+   "Time is measured from *their* entry, not from when the study opened."
+  ]
+ },
+ {
+  "q": "Which of these most clearly breaks the 'non-informative censoring' assumption?",
+  "options": [
+   "Patients recruited late are followed for less time",
+   "A patient moves abroad for a new job",
+   "Patients withdraw because they become too unwell to attend visits",
+   "The study closes on a fixed date"
+  ],
+  "answer": 2,
+  "why": "Those patients are censored *because* their risk is high. People left in the risk set are healthier than the people who leave it, so survival is overestimated.",
+  "hints": [
+   "Late recruitment is unrelated to prognosis, so this is fine.",
+   "Moving for a job is (probably) unrelated to the risk of the event.",
+   "",
+   "A fixed closing date is unrelated to any one patient's risk."
+  ]
+ },
+ {
+  "q": "Why is the average of observed follow-up times a poor estimate of average survival?",
+  "options": [
+   "It's too high, because long survivors dominate",
+   "It's too low, because censored times are shorter than the true event times",
+   "It's fine as long as the sample is large",
+   "It's only a problem when two events happen at the same time"
+  ],
+  "answer": 1,
+  "why": "Each censored time is a lower bound on the true event time, so averaging them pulls the estimate down. A bigger sample doesn't fix this.",
+  "hints": [
+   "Look at the app again: the naive means were always *below* the truth.",
+   "",
+   "A bias doesn't shrink with sample size. More data just gives a more precise wrong answer.",
+   "Ties are a minor technical issue. Censoring is the real problem."
+  ]
+ },
+ {
+  "q": "In <code>survival::lung</code>, <code>status</code> is coded 1/2. After <code>status - 1</code>, what does <code>status = 1</code> mean?",
+  "options": [
+   "Censored",
+   "Died",
+   "Lost to follow-up",
+   "Alive at 1 year"
+  ],
+  "answer": 1,
+  "why": "The original coding is 1 = censored, 2 = dead. Subtracting 1 gives the usual 0 = censored, 1 = event.",
+  "hints": [
+   "Censored becomes 0.",
+   "",
+   "Lost to follow-up is a kind of censoring, which is coded 0.",
+   "status records what happened at the end of follow-up, not at a fixed time."
+  ]
+ }
+])
+```
+
+## Exercise
+
+### Exercise 1.1
+
+*These are live exercises: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used them before.*
+
+1. How many patients in `lung` have a missing value in `ph.ecog`
+   (performance score)?
+2. What is the longest follow-up time? Was that patient censored, or did
+   they die? Make this the last line, so it can be checked.
+3. Write down, in one sentence, what the "time origin" and "event" are for
+   `lung`. (Hint: the help page, `?lung`, describes the variables.)
+
+```{webr}
+#| setup: true
+#| exercise: ex_lung_explore
+library(survival)
+lung <- survival::lung
+lung$status <- lung$status - 1        # 0 = censored, 1 = died
+```
+
+```{webr}
+#| exercise: ex_lung_explore
+#| caption: "Exercise 1.1: exploring the lung data"
+# 1. Number of missing values in ph.ecog
+
+
+# 2. The row with the longest follow-up time: show its time and status (last line)
+```
+
+::: {.hint exercise="ex_lung_explore"}
+::: {.callout-note collapse="false"}
+## Hint 1
+`is.na()` gives `TRUE` for each missing value, and `sum()` counts the `TRUE`s.
+:::
+:::
+
+::: {.hint exercise="ex_lung_explore"}
+::: {.callout-note collapse="false"}
+## Hint 2
+`which.max(lung$time)` gives the row number of the longest time, so `lung[which.max(lung$time), c("time", "status")]` shows that row.
+:::
+:::
+
+::: {.solution exercise="ex_lung_explore"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+sum(is.na(lung$ph.ecog))
+lung[which.max(lung$time), c("time", "status")]
+```
+
+One patient has a missing `ph.ecog`. The longest follow-up is 1022 days, and
+that patient was **censored** (`status = 0`): they were still alive at their
+last follow-up. For part 3, `?lung` says time is "survival time in days",
+measured from enrolment, and the event is death from any cause.
+:::
+:::
+
+```{webr}
+#| exercise: ex_lung_explore
+#| check: true
+if (!grepl("is\\.na\\s*\\(\\s*lung\\$ph\\.ecog", .user_code)) {
+  list(correct = FALSE, type = "warning",
+       message = "For part 1, count the missing values with <code>sum(is.na(lung$ph.ecog))</code>.")
+} else if (is.data.frame(.result) && all(c("time", "status") %in% names(.result)) &&
+           nrow(.result) == 1 && .result$time == 1022) {
+  list(correct = TRUE,
+       message = "Correct! The longest follow-up is 1022 days, and <code>status = 0</code>, so that patient was censored, not dead. (And one patient has a missing <code>ph.ecog</code>.)")
+} else if (is.numeric(.result) && length(.result) == 1 && .result == 1022) {
+  list(correct = FALSE,
+       message = "Yes, the longest time is 1022 days. Now show that patient's <code>status</code> too: <code>lung[which.max(lung$time), c('time', 'status')]</code>.")
+} else {
+  list(correct = FALSE,
+       message = "Make the last line show the time and status of the patient with the longest follow-up. Try <code>which.max(lung$time)</code>.")
+}
+```
+
+## Summary
+
+::: {.callout-important icon="false"}
+## Key points
+- Survival data record the **time until an event**. You need a clear time origin, a clear event and a time scale.
+- A **censored** observation tells us only that the event happened *after* the last follow-up. It isn't missing data. It carries real information.
+- Ignoring censoring gives the wrong answer: averages of observed times are too low, and yes/no analyses ignore *when* events happen.
+- Survival methods assume censoring is **non-informative**: people who are censored have the same future risk as those still being followed.
+- In R, `Surv(time, status)` combines follow-up time and event status (1 = event, 0 = censored). In `lung`, `status` must be recoded from 1/2 to 0/1 first.
+:::
+
+**Answering the question.** We can't just average the follow-up times, because 63 of the 228 patients were censored, so their follow-up times are shorter than their true survival times. We need a method that uses the information in censored patients correctly. That's the Kaplan–Meier estimator, in the next chapter.
+
+## Further reading
+
+All of these are free to read online unless marked otherwise. The whole
+book's reading list, grouped by topic, is in @sec-further-reading.
+
+- @clark2003: **Start here.** A clear, non-technical introduction to survival data, censoring and Kaplan–Meier curves, written for clinicians and researchers.
+- @ucla_survival: Free workshop materials with R code, covering how to set up survival data in R and run first analyses. A useful second explanation alongside this book.
+- @leung1997: *More advanced.* The different kinds of censoring, and why the non-informative censoring assumption matters. (May need institutional access.)

@@ -1,0 +1,868 @@
+---
+format:
+  live-html:
+    webr:
+      packages:
+        - survival
+---
+
+# Confounding and propensity scores {#sec-psm}
+
+```{r}
+#| label: setup-ch4
+#| include: false
+library(survival)
+library(MatchIt)
+library(cobalt)
+library(dplyr)
+library(ggplot2)
+source("R/simulate_cohort.R")
+```
+
+{{< include ./_extensions/r-wasm/live/_knitr.qmd >}}
+
+::: {.callout-note icon="false"}
+## In this chapter
+**The question.** In routine care, patients given a new treatment died slightly *more* often than those not given it. Does the treatment cause harm, or were the treated patients sicker to begin with?
+
+**By the end of this chapter you will be able to:**
+
+- explain **confounding**, and why simple comparisons in observational data can mislead;
+- explain why propensity scores are used instead of, or as well as, adjusting for confounders in a Cox model;
+- measure imbalance between groups with **standardised mean differences** (SMDs);
+- explain what a **propensity score** is, estimate it with logistic regression, and describe why it balances covariates;
+- match treated and untreated patients on their propensity scores, and explain what a **caliper** does;
+- describe the limits of matching: unmeasured confounders, dropped patients, and who the result applies to.
+:::
+
+## Warm-up: remember Chapters 3 and 4? {.unnumbered}
+
+Two quick questions to bring back the key ideas from last time.
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "A Cox model gives HR = 0.75 for a treatment. What is the percentage change in the hazard?",
+  "options": [
+   "25% lower",
+   "75% lower",
+   "75% higher",
+   "33% higher"
+  ],
+  "answer": 0,
+  "why": "(0.75 − 1) × 100 = −25%: a 25% lower hazard at any point in time.",
+  "hints": [
+   "",
+   "That would be HR = 0.25.",
+   "An HR below 1 means a *lower* hazard.",
+   "That's the reverse comparison, 1/0.75 ≈ 1.33: the untreated vs the treated."
+  ]
+ },
+ {
+  "q": "An observational study defines time zero as diagnosis, and compares patients who later started a drug with those who never did. What is the risk?",
+  "options": [
+   "Immortal time bias: the drug group had to survive long enough to start it",
+   "Informative censoring",
+   "Competing risks",
+   "None, as long as the model is adjusted for age"
+  ],
+  "answer": 0,
+  "why": "Patients who died before they could start the drug end up in the 'never' group, so the drug looks protective. Time zero should be the same moment for everyone, with group membership known at that moment (Chapter 4).",
+  "hints": [
+   "",
+   "Censoring isn't the problem here. Think about how the groups were formed.",
+   "There's only one kind of event here.",
+   "Adjusting for age doesn't fix how the groups were formed."
+  ]
+ }
+])
+```
+
+## The problem: confounding
+
+In a randomised trial, chance alone decides who gets treated. So treated
+and untreated patients are similar *on average* in every way, measured or
+not, and any difference in outcomes can be put down to the treatment.
+
+In **observational data**, treatment decisions depend on patient
+characteristics. Sicker patients may be more likely to get a new drug
+(*confounding by indication*), or less likely to get surgery. A
+**confounder** is a variable that affects both treatment and outcome. If we
+ignore confounders, a treatment that helps can look harmful.
+
+## Meet the data: a simulated observational cohort {#sec-cohort}
+
+To learn these methods, we need data where **we know the right answer**.
+Then we can check whether each method recovers it. Real observational data
+can't do that, so for the rest of the book we use a simulated cohort. It's
+made by the function `simulate_cohort()`, which is in the file
+[simulate_cohort.R](R/simulate_cohort.R){download="simulate_cohort.R"}.
+If you haven't already, download it into your project folder (see
+@sec-setup).
+
+**The scenario.** 2,000 patients are seen in routine care. Some are started
+on a new preventive treatment and some aren't. The decision isn't random:
+clinicians are more likely to treat patients who seem at higher risk. All
+patients are then followed for up to 8 years, until death or censoring.
+
+| Variable | Description |
+|---|---|
+| `id` | Patient identifier |
+| `age` | Age at baseline (years) |
+| `female` | 1 = female, 0 = male |
+| `diabetes` | 1 = has diabetes (more common at older ages) |
+| `bmi` | Body mass index (kg/m²) |
+| `smoker` | 1 = current smoker |
+| `treated` | 1 = received the treatment, 0 = did not |
+| `time` | Follow-up time (years) |
+| `status` | 1 = died, 0 = censored |
+
+**How the data were generated.** There are two steps, and each one uses
+the same baseline variables:
+
+1. **Who gets treated.** The probability of treatment rises with age,
+   diabetes, BMI and smoking, and is a little lower for women. This is
+   *confounding by indication*.
+2. **Who dies, and when.** Survival times follow a proportional hazards
+   model. Age, diabetes, BMI and smoking *also* raise the hazard of death,
+   and women have a lower hazard. **Treatment reduces the hazard of death by
+   30%: the true conditional hazard ratio is 0.70.** (*Conditional* means
+   comparing patients who have the same values of the other variables.
+   Chapter 7 explains why that detail matters.)
+
+Censoring comes from staggered entry (follow-up ends 3–8 years after a
+patient joins) plus random loss to follow-up. It is unrelated to prognosis,
+so it is non-informative.
+
+So every baseline variable is a **confounder**: it pushes patients towards
+treatment *and* towards death. The treatment truly works, but the treated
+patients start out sicker.
+
+```{r}
+#| label: show-simulation
+#| file: R/simulate_cohort.R
+#| eval: false
+#| code-fold: true
+#| code-summary: "Show the simulation code"
+```
+
+Load the function, then create the cohort and look at it:
+
+```{r}
+#| label: load-function
+#| eval: false
+source("simulate_cohort.R")    # run this first: it loads simulate_cohort()
+```
+
+```{r}
+#| label: cohort-load
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+head(cohort)
+
+# Patients, deaths, and baseline characteristics by treatment group
+cohort |>
+  group_by(treated) |>
+  summarise(n = n(), deaths = sum(status),
+            age = mean(age), female = mean(female), diabetes = mean(diabetes),
+            bmi = mean(bmi), smoker = mean(smoker))
+```
+
+(If you prefer, `cohort <- read.csv("cohort.csv")` loads exactly the same
+data from the [downloadable CSV file](data/cohort.csv){download="cohort.csv"}.)
+
+849 patients (42%) were treated, and 629 (31%) died during follow-up. The
+treated patients are on average about 5 years older, and twice as likely to
+have diabetes (33% vs 15%). They also died slightly *more* often (33% vs
+30%), even though we know the treatment helps.
+
+## The naive analysis gets it wrong {#sec-naive}
+
+If we ignore the confounders and just compare treated with untreated
+patients, the Cox model gets the answer badly wrong:
+
+```{r}
+#| label: naive-cox
+coxph(Surv(time, status) ~ treated, data = cohort) |>
+  broom::tidy(exponentiate = TRUE, conf.int = TRUE)
+```
+
+The naive HR is about **1.11**: treatment *looks harmful*. Let's see why
+by comparing the baseline characteristics of the two groups.
+
+To compare groups on variables measured in different units (years, kg/m²,
+yes/no), we use the **standardised mean difference (SMD)**. It is the
+difference between the group means, divided by the **pooled** standard
+deviation (roughly, the average of the two groups' standard deviations):
+
+$$
+\text{SMD} = \frac{\text{mean in treated} - \text{mean in untreated}}{\text{pooled standard deviation}}
+$$
+
+So an SMD of 0.5 means the groups differ by half a standard deviation,
+whatever the units. Unlike a p-value, it doesn't depend on the sample size.
+The `bal.tab()` function from the **cobalt** package calculates SMDs (more on
+cobalt in @sec-workflow):
+
+```{r}
+#| label: balance-before
+bal.tab(treated ~ age + female + diabetes + bmi + smoker,
+        data = cohort, s.d.denom = "pooled", binary = "std",
+        thresholds = c(m = 0.1))
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+- **Type**: whether each variable is continuous or binary (yes/no).
+- **Diff.Un**: the SMD in the *unmatched* data. A positive value means the
+  treated group has a higher mean, or for binary variables a higher
+  proportion.
+- **M.Threshold**: whether the |SMD| is below 0.1 ("Balanced") or not.
+:::
+
+An |SMD| above **0.1** is a common rule of thumb for meaningful imbalance.
+Age (SMD 0.51) and diabetes (0.45) are strongly imbalanced, and BMI, smoking
+and sex are imbalanced too.
+
+## Why not just adjust in a Cox model? {#sec-why-ps}
+
+You already know one way to deal with confounders: put them in the Cox
+model, as in Chapter 3. That is a perfectly good approach, and Chapter 7
+compares it with matching. So why learn another one? Propensity score
+methods have four practical advantages:
+
+- **Design before outcomes.** Matching and checking balance use only the
+  baseline variables and who was treated. You settle the comparison groups
+  *before* seeing any survival results, as you would when designing a
+  trial, so you can't (even unconsciously) pick the analysis that gives the
+  answer you hoped for.
+- **You can see whether the groups are comparable.** Balance tables and
+  overlap plots show exactly where treated and untreated patients don't
+  resemble each other. A Cox model will compare them anyway, without
+  warning, by extrapolating from patients who aren't really comparable.
+- **Many confounders, few events.** A Cox model needs roughly 10–20 deaths
+  for each coefficient (Chapter 3). The propensity score model's outcome is
+  *treatment*, which is usually far more common than death, so it can
+  include many confounders. The survival model after matching then needs
+  only one coefficient, for treatment.
+- **A clear target.** Matching estimates the effect in a well-defined group
+  of patients, those who were treated (see the box on estimands later in
+  this chapter).
+
+They have costs too. Matching usually discards some patients, which costs
+precision. And **neither** approach can deal with confounders that weren't
+measured. In practice the two are often used together, as you'll see in
+Chapter 7.
+
+## The propensity score {#sec-ps}
+
+### The idea
+
+We have five confounders. To compare like with like, we could try to
+match every treated patient with an untreated patient of the same age,
+sex, diabetes status, BMI and smoking status. With only five variables
+that's already hard. Exact matches on age *and* BMI are rare. With twenty
+variables it's impossible.
+
+The **propensity score** (often shortened to **PS**) gets around this by
+combining all the confounders into a single number: each patient's **probability of being
+treated, given their covariates**:
+
+$$
+e(x) = \Pr(\text{Treated} = 1 \mid X = x)
+$$
+
+A patient with a propensity score of 0.8 had characteristics that made
+treatment very likely. A patient with a score of 0.1 was unlikely to be
+treated. Whether each patient was *actually* treated is a separate
+question.
+
+@rosenbaum1983 showed that the propensity score is a **balancing score**.
+Among patients with the same propensity score, the measured covariates have
+the same distribution in the treated and untreated groups. Consider two
+patients who both had a 60% chance of treatment. One got it and one didn't.
+They are comparable *as far as the measured covariates are concerned*. So
+instead of matching on five (or fifty) variables at once, we can **match on
+one number**.
+
+::: {.callout-important}
+## The big assumption: no unmeasured confounding
+Propensity scores can only balance the confounders you **measured and
+included**. Unlike randomisation, they do nothing about unmeasured ones
+(frailty, disease severity not in the records, and so on). The app later
+in this chapter lets you see this happen. Choosing covariates needs
+subject-matter knowledge, not just statistics.
+:::
+
+### Worked example: estimating the propensity score
+
+We don't know the true probability of treatment, so we **estimate** it. The
+usual method is a **logistic regression** with treatment as the outcome and
+the confounders as predictors. The survival outcome plays **no part** here:
+this model only describes *who gets treated*.
+
+```{r}
+#| label: ps-model
+ps_model <- glm(treated ~ age + female + diabetes + bmi + smoker,
+                data = cohort, family = binomial)
+
+# Odds ratios: how each characteristic changes the odds of being treated
+broom::tidy(ps_model, exponentiate = TRUE)
+```
+
+The `estimate` column holds the odds ratios (`exponentiate = TRUE` converts
+the coefficients to odds ratios, as it did for hazard ratios in Chapter 3).
+They show the confounding by indication we built in. Each extra
+year of age raises the odds of treatment by about 5%, and diabetes nearly
+triples them. Each patient's **fitted probability** from this model is their
+estimated propensity score:
+
+```{r}
+#| label: ps-fitted
+cohort$ps       <- fitted(ps_model)       # propensity score (a probability)
+cohort$logit_ps <- qlogis(cohort$ps)      # the same score on the log-odds scale
+
+cohort |>
+  select(id, age, female, diabetes, bmi, smoker, treated, ps) |>
+  head()
+```
+
+A useful first check is how much the two groups' scores **overlap**:
+
+```{r}
+#| label: fig-ps-overlap
+#| fig-cap: "Estimated propensity scores in treated and untreated patients. Matching is only possible where the two distributions overlap."
+#| fig-height: 3.2
+ggplot(cohort, aes(ps, fill = factor(treated, labels = c("Untreated", "Treated")))) +
+  geom_density(alpha = 0.5, colour = NA) +
+  scale_fill_manual(values = c("#E69F00", "#0072B2")) +
+  labs(x = "Estimated propensity score", y = "Density", fill = NULL) +
+  theme_minimal(base_size = 13)
+```
+
+Treated patients tend to have higher scores, as expected. But the
+distributions overlap over most of the range, so most treated patients
+should have untreated patients with similar scores. Where there is *no*
+overlap (here, at the very top end), comparable patients don't exist, and
+no method can conjure them up.
+
+### Seeing the balancing property
+
+Here's a direct way to see that the score balances the covariates. Split
+the patients into five equal-sized groups (**quintiles**) by propensity
+score. Then compare treated and untreated patients *within* each group:
+
+```{r}
+#| label: ps-quintiles
+cohort$ps_quintile <- ntile(cohort$ps, 5)      # 1 = lowest fifth of scores, 5 = highest
+
+cohort |>
+  group_by(ps_quintile, treated) |>
+  summarise(n = n(), mean_age = mean(age), prop_diabetes = mean(diabetes))
+```
+
+Read the table in pairs of rows. Each quintile has one row for untreated
+patients (`treated = 0`) and one for treated patients (`treated = 1`).
+
+Overall, treated patients were about 5 years older (67.8 vs 62.9) and
+twice as likely to have diabetes. *Within* each quintile, the differences
+mostly disappear. In the middle quintile, for example, both groups are aged
+about 65–66. Each quintile still covers a fairly wide range of scores,
+so the balance isn't perfect. **Matching** goes further, by pairing patients
+whose scores are *very* close.
+
+### Practice: fill in the blanks
+
+*This is a live exercise: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used one before.*
+
+Estimate the propensity scores yourself. The simulated `cohort` is already
+loaded. Replace each `______`, then click **Run Code**.
+
+```{webr}
+#| setup: true
+#| exercise: ex_ps
+simulate_cohort <- function(n = 2000, hr_treat = 0.70, seed = 2026) {
+  set.seed(seed)
+  age      <- round(pmin(pmax(rnorm(n, 65, 10), 35), 95))
+  female   <- rbinom(n, 1, 0.45)
+  diabetes <- rbinom(n, 1, plogis(-1.4 + 0.04 * (age - 65)))
+  bmi      <- round(rnorm(n, 28, 4.5), 1)
+  smoker   <- rbinom(n, 1, 0.25)
+  lp_treat <- -0.6 + 0.06 * (age - 65) + 1.0 * diabetes + 0.08 * (bmi - 28) -
+    0.3 * female + 0.4 * smoker
+  treated <- rbinom(n, 1, plogis(lp_treat))
+  lp_death <- log(hr_treat) * treated + 0.06 * (age - 65) + 0.6 * diabetes +
+    0.03 * (bmi - 28) - 0.25 * female + 0.55 * smoker
+  shape  <- 1.2
+  lambda <- 0.05                       # baseline hazard scale (per year)
+  t_event <- (-log(runif(n)) / (lambda * exp(lp_death)))^(1 / shape)
+  t_admin   <- runif(n, 3, 8)          # study ends 3-8 years after entry
+  t_dropout <- rexp(n, rate = 0.04)
+  t_cens    <- pmin(t_admin, t_dropout)
+  time   <- pmin(t_event, t_cens)
+  status <- as.integer(t_event <= t_cens)
+  data.frame(
+    id       = seq_len(n),
+    age, female, diabetes, bmi, smoker,
+    treated,
+    time     = round(time, 3),
+    status
+  )
+}
+cohort <- simulate_cohort(n = 2000, seed = 2026)
+```
+
+```{webr}
+#| exercise: ex_ps
+#| caption: "Practice: estimating propensity scores"
+# Logistic regression of treatment on the five confounders
+ps_model <- glm(treated ~ age + female + diabetes + bmi + smoker,
+                data = cohort, family = ______)
+
+# Each patient's estimated propensity score
+cohort$ps <- ______(ps_model)
+
+# Average propensity score in the untreated (0) and treated (1) groups
+tapply(cohort$ps, cohort$treated, ______)
+```
+
+::: {.hint exercise="ex_ps"}
+::: {.callout-note collapse="false"}
+## Hint 1
+Logistic regression is a `glm()` with `family = binomial`. The fitted
+probabilities come from `fitted()`.
+:::
+:::
+
+::: {.hint exercise="ex_ps"}
+::: {.callout-note collapse="false"}
+## Hint 2
+`tapply(x, group, mean)` calculates the mean of `x` in each group.
+:::
+:::
+
+::: {.solution exercise="ex_ps"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+ps_model <- glm(treated ~ age + female + diabetes + bmi + smoker,
+                data = cohort, family = binomial)
+cohort$ps <- fitted(ps_model)
+tapply(cohort$ps, cohort$treated, mean)
+```
+
+The average propensity score is about 0.37 in untreated patients and 0.50
+in treated patients. Treated patients had characteristics that made
+treatment more likely. That is the confounding by indication the
+propensity score captures.
+:::
+:::
+
+```{webr}
+#| exercise: ex_ps
+#| check: true
+env <- .envir_result
+m <- env$ps_model
+if (!inherits(m, "glm") || m$family$family != "binomial") {
+  list(correct = FALSE, message = "Use logistic regression: <code>family = binomial</code> in <code>glm()</code>.")
+} else if (is.null(env$cohort$ps) || !isTRUE(all.equal(unname(env$cohort$ps), unname(fitted(m))))) {
+  list(correct = FALSE, message = "Each patient's propensity score is their fitted probability: <code>fitted(ps_model)</code>.")
+} else if (!is.numeric(.result) || length(.result) != 2 || abs(.result[[1]] - 0.367) > 0.01) {
+  list(correct = FALSE, message = "The last line should give the <b>mean</b> score in each group: <code>tapply(cohort$ps, cohort$treated, mean)</code>.")
+} else {
+  list(correct = TRUE, message = "Correct! Average propensity score: 0.37 in untreated and 0.50 in treated patients. Treated patients looked more 'treatable' before treatment, which is the confounding we need to deal with.")
+}
+```
+
+### Which covariates should go in?
+
+- **Include** pre-treatment variables that affect the outcome, especially
+  if they also affect treatment (true confounders).
+- **Never include** variables measured *after* treatment that could be
+  affected by it (mediators), or the outcome itself.
+- Variables that predict treatment but *not* outcome (instruments) don't
+  help, and they increase variance.
+- Don't choose covariates by p-values. Draw a causal diagram (DAG). The
+  website [dagitty.net](https://www.dagitty.net) is useful for this.
+- The aim of the PS model is **balance**, not prediction. A model that
+  predicts treatment very well is not necessarily a better PS model.
+
+## Matching on the propensity score {#sec-matching}
+
+### Nearest-neighbour matching, by hand
+
+The simplest and most common approach is **1:1 nearest-neighbour
+matching**:
+
+1. Take a treated patient.
+2. Find the untreated patient whose propensity score is closest. In
+   matching, untreated patients are usually called **controls**.
+3. Pair them, and remove that untreated patient from the pool, so that
+   each control is used only once (*matching without replacement*).
+4. Repeat for the next treated patient.
+
+Distances are usually measured on the **logit (log-odds) scale**,
+$\log\{e/(1-e)\}$, not on the probability scale. On the probability scale,
+scores are squashed together near 0 and 1, so a difference of 0.02 means
+much more at $e = 0.95$ than at $e = 0.5$. The logit scale spreads them out
+evenly.
+
+Let's match four treated patients by hand. To keep it simple, we look for
+each patient's nearest control independently, ignoring step 3:
+
+```{r}
+#| label: match-by-hand
+#| code-fold: true
+#| code-summary: "Show the code for this example"
+controls <- filter(cohort, treated == 0)
+
+nearest_control <- function(lp) {
+  i <- which.min(abs(controls$logit_ps - lp))
+  tibble(control_id = controls$id[i], control_age = controls$age[i],
+         control_diab = controls$diabetes[i], control_ps = controls$ps[i],
+         distance = abs(controls$logit_ps[i] - lp))
+}
+
+# Three ordinary treated patients, plus the treated patient with the highest score
+example <- cohort |>
+  filter(treated == 1) |>
+  slice(c(1, 2, 3, which.max(ps)))
+
+bind_cols(
+  example |> select(id, age, diabetes, ps),
+  bind_rows(lapply(example$logit_ps, nearest_control))
+) |>
+  mutate(across(c(ps, control_ps), \(x) round(x, 3)), distance = round(distance, 3))
+```
+
+Each row is one treated patient (`id`, `age`, `diabetes`, `ps`), next to the
+untreated patient with the closest score (`control_…`). `distance` is how
+far apart their scores are on the logit scale.
+
+The first three treated patients each find a control with an almost
+identical score, and similar characteristics. The last patient is
+different. Their score is about 0.94, and the closest untreated patient
+scores only about 0.86, a long way off on the logit scale. Is that pair
+really comparable? This is what a caliper is for.
+
+### The caliper {#sec-caliper}
+
+A **caliper** is the **maximum distance allowed** between the scores of
+two matched patients. If a treated patient has no control within the
+caliper, they are **left unmatched** and dropped from the analysis, rather
+than being paired with a poor match.
+
+The usual choice is **0.2 standard deviations of the logit propensity
+score** [@austin2011]:
+
+```{r}
+#| label: caliper-value
+caliper <- 0.2 * sd(cohort$logit_ps)
+caliper
+```
+
+In this cohort the caliper is about 0.17 on the logit scale. The first
+three pairs above are well inside it. The fourth (distance ≈ 0.88) is far
+outside it, so that patient would be **dropped**.
+
+Calipers involve a trade-off:
+
+| | Wider caliper (or none) | Narrower caliper |
+|---|---|---|
+| Balance | Worse: poor matches allowed | Better: only close matches |
+| Patients kept | More | Fewer, as more treated patients are dropped |
+| Who the result applies to | Close to all treated patients | Only the treated patients who *have* comparable controls |
+
+That last row matters. Dropped patients are usually the ones with the
+most extreme scores, the most "obviously treat" cases. After matching,
+the estimate applies to the remaining, more typical treated patients.
+Always report how many were dropped.
+
+::: {.callout-note}
+## Estimands: who is the effect for?
+Matching each treated patient to a control builds a sample that looks like
+the **treated** group. So it estimates the:
+
+- **ATT**: average effect of treatment *in the treated*. "For the kind of
+  patients who get this drug, what did it do?"
+
+An alternative is the:
+
+- **ATE**: average effect if *everyone* in the population were treated vs
+  if no-one were. Weighting methods (IPTW) or full matching can target the
+  ATE (see @sec-weighting).
+
+With a caliper, the estimate applies to the *matched* treated patients.
+:::
+
+## Interactive app: matching under the microscope {#sec-app-psm}
+
+We simulate patients with two confounders, **age** and **severity**. Each
+affects both the chance of treatment and a continuous outcome score. You
+control how strong the confounding is, the true treatment effect and the
+matching caliper (@sec-caliper). You can also leave severity out of the propensity model,
+to see what an *unmeasured confounder* does.
+
+```{ojs}
+//| echo: false
+import {makeRandom, logisticFit, nnMatch, smd, pooledSD, mean, expit, quiz} from "./js/survtools.js"
+```
+
+::: {.app}
+```{ojs}
+//| echo: false
+viewof psScen = Inputs.radio(["Default", "No confounding of the outcome", "No confounding of treatment", "Strong confounding", "No caliper", "Tight caliper (0.05)", "Severity unmeasured"], {value: "Default", label: "Scenario"})
+psP = ({"Default": {}, "No confounding of the outcome": {"beta": 0}, "No confounding of treatment": {"gamma": 0}, "Strong confounding": {"gamma": 2, "beta": 2}, "No caliper": {"usecal": false}, "Tight caliper (0.05)": {"cal": 0.05}, "Severity unmeasured": {"sev": false}})[psScen]
+viewof ps = Inputs.form({
+  n:      Inputs.range([200, 2000], {value: psP.n ?? 800, step: 100, label: "Patients"}),
+  gamma:  Inputs.range([0, 2], {value: psP.gamma ?? 1, step: 0.1, label: "Confounders → treatment (strength)"}),
+  beta:   Inputs.range([0, 2], {value: psP.beta ?? 1, step: 0.1, label: "Confounders → outcome (strength)"}),
+  tau:    Inputs.range([-5, 5], {value: psP.tau ?? 2, step: 0.5, label: "TRUE treatment effect"}),
+  usecal: Inputs.toggle({label: "Use a caliper", value: psP.usecal ?? true}),
+  cal:    Inputs.range([0.05, 1], {value: psP.cal ?? 0.2, step: 0.05, label: "…caliper (SD of logit PS)"}),
+  sev:    Inputs.toggle({label: "Severity is measured (in PS model)", value: psP.sev ?? true}),
+  seed:   Inputs.range([1, 100], {value: psP.seed ?? 11, step: 1, label: "Random seed"})
+}, {template: formGrid})
+formGrid = inputs => html`<div class="form-grid">${Object.values(inputs)}</div>`
+```
+
+```{ojs}
+//| echo: false
+psData = {
+  const r = makeRandom(ps.seed);
+  return Array.from({length: ps.n}, (_, i) => {
+    const age = r.norm(), sev = r.norm();
+    const t = r.bern(expit(-0.4 + ps.gamma * (age + sev)));
+    const y = 50 + ps.tau * t - 4 * ps.beta * (age + sev) + r.norm(0, 5);
+    return {id: i, age, sev, treat: t, y};
+  });
+}
+psFitted = logisticFit(psData.map(d => d.treat),
+                       psData.map(d => ps.sev ? [d.age, d.sev] : [d.age])).fitted
+psPairs = nnMatch(psFitted, psData.map(d => d.treat), ps.usecal ? ps.cal : Infinity)
+psMatchedIdx = new Set(psPairs.flat())
+psRes = {
+  const T = psData.filter(d => d.treat), C = psData.filter(d => !d.treat);
+  const naive = mean(T.map(d => d.y)) - mean(C.map(d => d.y));
+  const matched = psPairs.length ? mean(psPairs.map(([t, c]) => psData[t].y - psData[c].y)) : NaN;
+  return {nT: T.length, nC: C.length, naive, matched, nPairs: psPairs.length};
+}
+```
+
+```{ojs}
+//| echo: false
+{
+  const fmt = v => isNaN(v) ? "–" : (v >= 0 ? "+" : "") + v.toFixed(2);
+  const err = v => isNaN(v) ? "" : `(bias ${fmt(v - ps.tau)})`;
+  return html`<div class="estimates">
+  <div class="est"><span>True effect</span><b>${fmt(ps.tau)}</b><small>&nbsp;</small></div>
+  <div class="est bad"><span>Naive difference</span><b>${fmt(psRes.naive)}</b><small>${err(psRes.naive)}</small></div>
+  <div class="est good"><span>Matched difference (ATT)</span><b>${fmt(psRes.matched)}</b><small>${err(psRes.matched)}</small></div>
+  </div>
+  <p style="margin-top:.5em">${psRes.nT} treated, ${psRes.nC} untreated → <b>${psRes.nPairs}</b> matched pairs.
+  ${psRes.nT - psRes.nPairs > 0 ? html`<span style="color:#D55E00">${psRes.nT - psRes.nPairs} treated patients had no control within the caliper and were dropped.</span>` : ""}</p>`;
+}
+```
+
+```{ojs}
+//| echo: false
+psHist = {
+  const bins = d3.bin().domain([0, 1]).thresholds(25);
+  const make = (rows, label) => {
+    const out = [];
+    for (const [g, sign] of [[1, 1], [0, -1]]) {
+      for (const b of bins(rows.filter(d => d.treat === g).map(d => d.ps)))
+        out.push({x1: b.x0, x2: b.x1, y: sign * b.length, group: g ? "Treated" : "Untreated", panel: label});
+    }
+    return out;
+  };
+  const all = psData.map((d, i) => ({...d, ps: psFitted[i]}));
+  return make(all, "Before matching").concat(make(all.filter(d => psMatchedIdx.has(d.id)), "After matching"));
+}
+psLove = {
+  const all = psData.map((d, i) => ({...d, lps: Math.log(psFitted[i] / (1 - psFitted[i]))}));
+  const out = [];
+  for (const [v, label] of [["age", "Age"], ["sev", "Severity" + (ps.sev ? "" : " (unmeasured)")], ["lps", "Propensity score (logit)"]]) {
+    const x1 = all.filter(d => d.treat).map(d => d[v]), x0 = all.filter(d => !d.treat).map(d => d[v]);
+    const sd = pooledSD(x1, x0);
+    out.push({variable: label, sample: "Before", smd: smd(x1, x0, sd)});
+    if (psPairs.length > 1)
+      out.push({variable: label, sample: "After", smd: smd(psPairs.map(p => all[p[0]][v]), psPairs.map(p => all[p[1]][v]), sd)});
+  }
+  return out;
+}
+```
+
+```{ojs}
+//| echo: false
+html`<div>
+${Plot.plot({title: "Propensity score distributions (treated up, untreated down)", height: 280, width: 680,
+  fx: {label: null, domain: ["Before matching", "After matching"]}, x: {label: "Propensity score", domain: [0, 1]}, y: {label: "Count", tickFormat: Math.abs, grid: true},
+  color: {legend: true, domain: ["Treated", "Untreated"], range: ["#0072B2", "#E69F00"]},
+  marks: [Plot.rectY(psHist, {x1: "x1", x2: "x2", y: "y", fill: "group", fx: "panel", fillOpacity: 0.8, inset: 0.5}), Plot.ruleY([0])]})}
+${Plot.plot({title: "Love plot: |standardised mean difference|", height: 200, width: 680, marginLeft: 190,
+  x: {label: "|SMD|", domain: [0, Math.max(0.5, ...psLove.map(d => Math.abs(d.smd)))], grid: true}, y: {label: null},
+  color: {legend: true, domain: ["Before", "After"], range: ["#D55E00", "#0072B2"]},
+  symbol: {domain: ["Before", "After"], range: ["circle", "triangle"]},
+  marks: [Plot.ruleX([0.1], {stroke: "#888", strokeDasharray: "4,3"}),
+          Plot.dot(psLove, {x: d => Math.abs(d.smd), y: "variable", fill: "sample", symbol: "sample", r: 6})]})}
+</div>`
+```
+:::
+
+::: {.callout-tip}
+## Things to try
+For each one, **predict first**: decide what you expect to see, then pick the scenario and check. Committing to a prediction, even a wrong one, makes the result stick.
+
+1. **No confounding.** **Predict:** if age and severity affect who gets
+   treated but *not* the outcome, will the naive estimate be biased? *Then*
+   pick **No confounding of the outcome**. Then try **No confounding of
+   treatment**.
+2. **Strong confounding.** **Predict:** how wrong could the naive estimate
+   get? Could it even have the wrong sign? *Then* pick **Strong
+   confounding**. Look at the overlap of the histograms and the number of
+   treated patients dropped.
+3. **Caliper.** **Predict:** what happens to balance and to the number of
+   pairs without a caliper, and with a very tight one? *Then* pick **No
+   caliper**, then **Tight caliper (0.05)**.
+4. **Unmeasured confounding.** **Predict:** if severity isn't recorded, so
+   it can't go into the propensity score model, will age still balance?
+   Will the estimate be right? *Then* pick **Severity unmeasured**.
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Answers: what you should see
+The figures below use the default seed (11). Other seeds give similar
+patterns.
+
+1. **No confounding.** With *Confounders → outcome* = 0, the naive estimate
+   is +2.14 (truth +2). Before matching, age and severity are still badly
+   imbalanced (SMD ≈ 0.8), but the imbalance doesn't matter because they
+   don't affect the outcome. With *Confounders → treatment* = 0, the groups
+   are already balanced (SMDs below 0.15), the naive estimate is +2.11, and
+   matching keeps almost every treated patient (318 of 319). **A variable is
+   only a confounder if it affects both treatment and outcome.**
+2. **Strong confounding.** With both strengths at 2, the naive difference is
+   about −12.9. That's the *wrong sign*: the treatment looks harmful. Matching
+   gives +1.3, much closer to the truth. But only 167 of 355 treated patients
+   find a match, because there are hardly any untreated patients with high
+   propensity scores. The PS histograms barely overlap.
+3. **Caliper.** With no caliper, all 354 treated are matched, but the SMDs
+   after matching are still about 0.5. Treated patients with high PS were
+   paired with poor matches. The estimate is −1.9, still badly biased. With a
+   caliper of 0.05, balance is essentially perfect (SMDs ≈ 0) and the
+   estimate is +2.3, but only 227 treated are kept. Those 227 are the treated
+   patients who look like controls, typically the less severe cases. So the
+   estimate applies to *them*, not to all treated patients.
+4. **Unmeasured confounding.** Without severity in the model, age still
+   balances (SMD 0.08 after matching), but severity's SMD stays at about
+   0.8. The matched estimate is −1.0 when the truth is +2. In real data you
+   can't see the severity row, so **everything would look fine**. This is
+   why choosing covariates needs subject knowledge, and why sensitivity
+   analyses matter.
+:::
+
+## Quick quiz {.unnumbered}
+
+Choose an answer to each question. You'll get instant feedback and can change your answer as often as you like.
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "Which of these should <b>not</b> be included in the propensity score model for a new blood-pressure drug?",
+  "options": [
+   "Age at baseline",
+   "Diabetes at baseline",
+   "Blood pressure measured 3 months after starting treatment",
+   "Smoking status at baseline"
+  ],
+  "answer": 2,
+  "why": "A variable measured after treatment may be affected by the treatment, i.e. it may be a mediator. Including it removes part of the effect you want to estimate. Only include pre-treatment variables.",
+  "hints": [
+   "Baseline age is a classic confounder. Include it.",
+   "Baseline diabetes plausibly affects both treatment choice and outcome. Include it.",
+   "",
+   "Baseline smoking plausibly affects both treatment choice and outcome. Include it."
+  ]
+ },
+ {
+  "q": "After matching, every covariate has |SMD| < 0.05. What can you conclude?",
+  "options": [
+   "The treatment effect estimate is now unbiased",
+   "The measured covariates are well balanced, but unmeasured confounding is still possible",
+   "Matching was unnecessary",
+   "The propensity score model must be correctly specified"
+  ],
+  "answer": 1,
+  "why": "Balance diagnostics can only check what you measured. Remember the app: without severity in the model, age was perfectly balanced but the estimate was still badly wrong.",
+  "hints": [
+   "Only if there are no unmeasured confounders, and you can never check that.",
+   "",
+   "Good balance *after* matching says nothing about balance *before*.",
+   "Good balance is what matters. The PS model is only a tool to get there."
+  ]
+ },
+ {
+  "q": "You tighten the caliper from 0.2 to 0.05 SD. What usually happens?",
+  "options": [
+   "Balance improves and more treated patients are discarded",
+   "Balance gets worse and fewer patients are discarded",
+   "Nothing changes",
+   "All controls are used"
+  ],
+  "answer": 0,
+  "why": "A tighter caliper means only very close matches are allowed. Balance improves, but treated patients without a close control are dropped, which changes the population the estimate applies to.",
+  "hints": [
+   "",
+   "It's the other way round: stricter matching means better balance and more patients dropped.",
+   "Try it in the app: the number of pairs and the SMDs both change.",
+   "1:1 matching uses at most one control per treated patient."
+  ]
+ },
+ {
+  "q": "Matching each treated patient to a similar untreated patient (1:1 nearest-neighbour matching) targets which estimand?",
+  "options": [
+   "ATE: average treatment effect in the whole population",
+   "ATT: average treatment effect in the treated",
+   "ATC: average treatment effect in the controls",
+   "A conditional effect for a typical patient"
+  ],
+  "answer": 1,
+  "why": "Each treated patient is kept and given a similar control, so the matched sample resembles the treated group. With a caliper, it resembles the *matched* treated patients.",
+  "hints": [
+   "The ATE needs weighting (IPTW) or full matching, which keep everyone.",
+   "",
+   "That would need each control to be matched to a treated patient.",
+   "Matching estimates an average (marginal) effect, not a conditional one."
+  ]
+ }
+])
+```
+
+## Summary
+
+::: {.callout-important icon="false"}
+## Key points
+- A **confounder** affects both who gets treated and the outcome. Ignoring confounders can reverse the direction of an effect. Here, a naive HR of 1.11 hid a real benefit.
+- **SMDs** measure imbalance on a common scale. |SMD| > 0.1 is a common sign of meaningful imbalance.
+- The **propensity score** is the probability of treatment given the measured covariates. It is estimated by logistic regression. Patients with similar scores have similar covariates, so matching on one number balances them all.
+- **Nearest-neighbour matching** pairs each treated patient with the untreated patient (the *control*) whose logit propensity score is closest. A **caliper** (usually 0.2 SD) stops poor matches. Treated patients with no close match are dropped, so the result applies to the matched treated patients (the ATT).
+- Matching only balances **measured** confounders. It can't fix confounders you didn't measure.
+:::
+
+**Answering the question.** The treated patients were sicker to begin with:
+older, more often diabetic, with higher BMI and more often smokers. Their
+average propensity score was 0.50, compared with 0.37 for untreated
+patients. Matching on the propensity score can create comparable groups.
+Chapter 6 does the matching in R and checks that it worked, and Chapter 7
+then compares survival.
+
+## Further reading
+
+All of these are free to read online unless marked otherwise. The whole
+book's reading list, grouped by topic, is in @sec-further-reading.
+
+- @haukoos2015: **Start here.** A two-page, plain-language overview of what propensity scores are and their limitations. (May need institutional access.)
+- @austin2011intro: The standard introduction to propensity score methods: matching, weighting and stratification, and how to check balance.
+

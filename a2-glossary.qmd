@@ -1,0 +1,274 @@
+# Glossary {#sec-glossary}
+
+Plain-language definitions of the terms used in this book. The link after
+each one goes to where it is explained.
+
+**Accelerated failure time (AFT) model.** A regression model for survival
+time itself. Its effects are *time ratios*: a time ratio of 1.5 means
+survival times are 1.5 times as long. Fitted with `survreg()`.
+(@sec-nonph)
+
+**ATE (average treatment effect).** The effect of treatment if *everyone*
+in the population were treated, compared with no-one. Weighting (IPTW) or
+full matching can estimate it. (@sec-matching)
+
+**At risk (risk set).** The patients who are still being followed and have
+not yet had the event at a given time. Only they can contribute an event
+then. (@sec-km)
+
+**ATT (average treatment effect in the treated).** The effect of treatment
+among the kind of patients who actually received it. 1:1 matching of
+treated to untreated patients estimates the ATT. (@sec-matching)
+
+**Balance.** Treated and untreated groups are *balanced* when their
+covariates have similar distributions. It is usually checked with SMDs.
+(@sec-naive)
+
+**Balancing score.** A score such that patients with the same value have
+the same distribution of measured covariates. The propensity score is one.
+(@sec-ps)
+
+**Caliper.** The maximum allowed distance between the propensity scores of
+two matched patients. Treated patients with no control within the caliper
+are left unmatched. A common choice is 0.2 standard deviations of the logit
+propensity score. (@sec-caliper)
+
+**Cause-specific Cox model.** A Cox model for one type of event, with
+competing events treated as censored. It compares the *rate* of that event
+among patients still at risk of it. (@sec-competing)
+
+**Censoring.** When follow-up ends before the event is seen, so we only know
+that the event happened *after* a certain time. *Administrative censoring*:
+the study ended. *Loss to follow-up*: the patient left the study.
+(@sec-survival-data)
+
+**Cohort (observational).** A group of people followed over time, where
+treatment was chosen in routine care rather than by randomisation.
+(@sec-cohort)
+
+**Competing risks.** Events that prevent the event of interest from
+happening, e.g. death before relapse. Treating them as censored makes
+1 − KM overstate the risk; use the cumulative incidence function instead.
+(@sec-competing)
+
+**Complete-case analysis.** Analysing only the patients with no missing
+values in any variable in the model. It's R's default, and can be biased.
+(@sec-missing)
+
+**Confidence interval (95% CI).** A range of plausible values for the true
+quantity, given the data. (@sec-assumed)
+
+**Confounder.** A variable that affects both who gets a treatment and the
+outcome. Ignoring confounders can distort or even reverse a treatment
+effect. *Confounding by indication*: sicker patients are more likely to be
+treated. (@sec-psm)
+
+**Controls.** In matching, the untreated patients who are paired with
+treated patients. (@sec-matching)
+
+**Covariate.** A variable included in a model, e.g. age or sex.
+
+**Cox model (Cox proportional hazards regression).** A regression model for
+survival data. It estimates hazard ratios for one or more variables without
+specifying the shape of the baseline hazard. (@sec-cox)
+
+**Cumulative incidence function (CIF).** The probability of having had a
+particular event by a given time, allowing for competing events that can
+happen first. (@sec-competing)
+
+**Degrees of freedom (df).** Roughly, the number of independent comparisons
+a test makes. A log-rank test of $k$ groups has $k - 1$ df; a test for
+trend has 1. The df tell R which chi-squared distribution to use for the
+p-value. (@sec-pairwise)
+
+**Doubly robust.** Combining two adjustment methods, e.g. matching *and*
+adjusting for the covariates in the matched Cox model. The name means two
+chances to get it right: the estimate should be close to the truth if
+*either* method deals with the confounding well. (@sec-together)
+
+**Effective sample size (ESS).** Roughly, how many equally weighted
+patients a weighted sample is worth. Very unequal weights make it much
+smaller than the real sample size. (@sec-weighting)
+
+**Estimand.** The precise quantity a study aims to estimate, e.g. the ATT
+or the ATE. (@sec-matching)
+
+**Event.** The outcome being timed, e.g. death or relapse. (@sec-survival-data)
+
+**Family-wise error rate (FWER).** The chance of at least one false-positive
+result among a set of tests. Holm and Bonferroni adjustments control it.
+Compare the *false discovery rate (FDR)*: the expected proportion of
+significant results that are false positives, which Benjamini–Hochberg
+controls. (@sec-pairwise)
+
+**Fine–Gray model.** A regression model for the cumulative incidence of
+one type of event when there are competing risks. It compares the
+*probability* of the event. (@sec-competing)
+
+**Forest plot.** A plot showing each estimate (e.g. a hazard ratio) as a
+point with its confidence interval as a horizontal line, usually on a log
+scale with a reference line at 1. (@sec-forest)
+
+**Full matching.** A matching method that puts every patient into a
+matched set with at least one treated and one untreated patient, so nobody
+is discarded. (@sec-weighting)
+
+**Hazard.** The event rate at a given time among people still at risk:
+roughly, "the risk right now, given you've survived so far".
+(@sec-hazard-intro, @sec-cox)
+
+**Hazard ratio (HR).** The ratio of two groups' hazards. HR = 0.6 means the
+hazard is 40% lower; HR = 1.5 means it is 50% higher. The percentage change
+is $(\text{HR} - 1) \times 100\%$. (@sec-cox)
+
+**Holm adjustment.** A way of adjusting p-values when several tests are
+done, so that the chance of *any* false-positive result stays at 5%.
+(@sec-pairwise)
+
+**Immortal time bias.** A spurious survival advantage that appears when
+patients are grouped by something that happens after time zero (e.g. "ever
+treated"). The group had to survive long enough to get it, so part of their
+follow-up is time during which they could not die. (@sec-immortal)
+
+**Informative censoring.** Censoring that is related to a patient's risk,
+e.g. the sickest patients dropping out. Being censored then tells you
+something about the patient, and KM estimates are biased.
+(@sec-informative)
+
+**Inverse probability of treatment weighting (IPTW).** Weighting each
+patient by one over the probability of the treatment they received, so
+that treatment is unrelated to the measured confounders in the weighted
+sample. (@sec-weighting)
+
+**Kaplan–Meier (KM) estimator.** The standard way to estimate a survival
+curve from data with censoring. The curve drops at each event time, by the
+fraction of at-risk patients who had the event. Also called the
+*product-limit* estimator. (@sec-km)
+
+**Landmark analysis.** Restarting the clock at a chosen time point (the
+landmark), keeping only patients still followed then, and grouping them by
+their status at that time. One way to avoid immortal time bias.
+(@sec-immortal)
+
+**Logit (log-odds).** $\log\{p/(1-p)\}$. It turns a probability between 0 and
+1 into a number on an unlimited scale. Propensity scores are compared on
+this scale when matching. (@sec-assumed)
+
+**Log-rank test.** A test of whether two or more survival curves differ. It
+compares observed with expected numbers of events. (@sec-logrank)
+
+**Love plot.** A plot of each covariate's SMD before and after matching.
+Named after the statistician Thomas Love, who popularised it.
+(@sec-matchit)
+
+**Marginal and conditional hazard ratios.** A *conditional* HR compares
+patients with the same covariate values (as in an adjusted Cox model). A
+*marginal* HR compares the groups on average, across their mix of
+covariates (as in a matched Cox model with only `treated`). For hazard
+ratios the two can differ even without confounding. (@sec-together)
+
+**Matching (nearest-neighbour).** Pairing each treated patient with the
+untreated patient whose propensity score is closest. *Without replacement*:
+each control is used only once. (@sec-matching)
+
+**MCAR, MAR and MNAR.** Missing completely at random (missingness has
+nothing to do with the patient); missing at random (it depends only on
+recorded information); missing not at random (it depends on the missing
+value itself, or on unrecorded information). (@sec-missing)
+
+**Median survival.** The time by which half the patients have had the
+event: where the KM curve crosses 0.5. If the curve never gets that low, the
+median is "not reached". (@sec-km)
+
+**Multiple imputation.** Filling in missing values several times with
+plausible values, analysing each completed dataset, and combining the
+results with *Rubin's rules*, so the uncertainty about the missing values
+is reflected in the CI. (@sec-missing)
+
+**Nelson–Aalen estimator.** An estimate of the cumulative hazard over
+time. Used to include the survival outcome when imputing missing
+covariates. (@sec-missing)
+
+**Non-informative censoring.** The assumption that censored patients have
+the same future risk as those still being followed. (@sec-survival-data,
+@sec-informative)
+
+**Odds ratio (OR).** The odds of an outcome in one group divided by the odds
+in another. Logistic regression coefficients are log odds ratios.
+(@sec-assumed)
+
+**Omnibus test.** A single test of whether *any* of several groups differ,
+e.g. the log-rank test with three or more groups. (@sec-pairwise)
+
+**Overlap (common support).** The range of propensity scores where both
+treated and untreated patients are found. Matching is only possible there.
+(@fig-ps-overlap)
+
+**Power.** The chance that a study detects a real effect (gives p < 0.05
+when the effect really exists). Small studies, and studies with few events,
+have low power. (@sec-app-km-sim)
+
+**Propensity score (PS).** A patient's probability of receiving treatment, given
+their measured covariates. It is usually estimated by logistic regression.
+(@sec-ps)
+
+**Proportional hazards (PH).** The Cox model's key assumption: the hazard
+ratio between groups stays constant over time. It is checked with
+`cox.zph()`. (@sec-ph-check)
+
+**Reference group.** The group that other groups are compared with in a
+regression model. In R, it's the first level of a factor. (@sec-cox-groups)
+
+**Restricted mean survival time (RMST).** The average survival time up to
+a chosen time horizon: the area under the survival curve up to that time.
+It doesn't rely on proportional hazards. (@sec-nonph)
+
+**Right censoring.** The usual kind of censoring: we know only that the
+event happened *after* the last follow-up time. (@sec-survival-data)
+
+**Risk table.** The table under a KM plot showing how many patients are
+still at risk at each time. (@sec-km)
+
+**Robust (sandwich) standard error.** A standard error that allows for
+correlated observations, such as members of a matched pair.
+(@sec-together)
+
+**Schoenfeld residuals.** Residuals from a Cox model that show whether a
+variable's effect changes over time. `cox.zph()` tests and plots the
+*scaled* Schoenfeld residuals to check proportional hazards. (@sec-ph-check)
+
+**Stabilised weights.** IPTW weights multiplied by the overall proportion
+receiving each treatment, so they average about 1. The HR is unchanged.
+(@sec-weighting)
+
+**Standardised mean difference (SMD).** The difference between two groups'
+means divided by the standard deviation. |SMD| > 0.1 is a common sign of
+imbalance. (@sec-naive)
+
+**Stratification (in a Cox model).** Giving each group of a variable its own
+baseline hazard, using `strata()`. It is used when that variable breaks the
+proportional hazards assumption. (@sec-ph-check)
+
+**Survival function, S(t).** The probability of being event-free beyond
+time t. (@sec-km)
+
+**Table 2 fallacy.** Interpreting every HR in an adjusted model as an
+effect, when the model was built to estimate the effect of one variable
+(e.g. treatment). (@sec-together)
+
+**Test for trend.** A test of whether risk changes steadily across ordered
+groups, e.g. ECOG 0, 1, 2+. (@sec-trend)
+
+**Time origin.** When the clock starts for each patient, e.g. diagnosis or
+enrolment. (@sec-survival-data)
+
+**Time scale.** The units in which time is measured from the origin, e.g.
+days, years, or age. (@sec-survival-data)
+
+**Time-varying (time-dependent) covariate.** A variable whose value can
+change during follow-up, such as "has had a transplant yet". Each patient's
+follow-up is split into periods, one row per period, and analysed with
+`Surv(start, stop, event)`. (@sec-immortal)
+
+**Unmeasured confounding.** Confounding by variables that weren't recorded.
+No propensity score method can remove it. (@sec-ps)

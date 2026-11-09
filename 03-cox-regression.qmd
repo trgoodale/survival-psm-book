@@ -1,0 +1,1097 @@
+---
+format:
+  live-html:
+    webr:
+      packages:
+        - survival
+---
+
+# Cox proportional hazards regression {#sec-cox}
+
+```{r}
+#| label: setup-ch3
+#| include: false
+library(survival)
+library(ggsurvfit)
+library(broom)
+library(dplyr)
+library(ggplot2)
+lung <- survival::lung |>
+  mutate(status = status - 1,
+         sex = factor(sex, 1:2, c("Male", "Female")))
+```
+
+{{< include ./_extensions/r-wasm/live/_knitr.qmd >}}
+
+::: {.callout-note icon="false"}
+## In this chapter
+**The question.** Women survived longer than men (Chapter 2). How much lower was their risk, and does the difference remain once we allow for age and fitness (ECOG)?
+
+**By the end of this chapter you will be able to:**
+
+- explain the **hazard**, the **hazard ratio** and the **proportional hazards** assumption;
+- fit Cox models in R with one or several variables, and interpret the hazard ratios, including as percentages;
+- compare three or more groups with hazard ratios, and test for a trend across ordered groups;
+- check the proportional hazards assumption with `cox.zph()`, and deal with a violation by splitting follow-up time.
+:::
+
+## Warm-up: remember Chapter 2? {.unnumbered}
+
+Two quick questions to bring back the key ideas from last time.
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "On a Kaplan–Meier curve, what happens at the time a patient is censored?",
+  "options": [
+   "The curve drops",
+   "The curve stays level, and the patient leaves the risk set",
+   "The curve rises",
+   "The patient is counted as an event"
+  ],
+  "answer": 1,
+  "why": "No event happened, so there's no drop. The patient simply stops counting towards the number at risk. The + marks on a KM plot show where this happens.",
+  "hints": [
+   "Only events make the curve drop.",
+   "",
+   "A survival curve can never go up.",
+   "Censored patients are never counted as events."
+  ]
+ },
+ {
+  "q": "In plain words, what is the hazard?",
+  "options": [
+   "The proportion of patients still alive",
+   "The event rate among the people still at risk",
+   "The total number of deaths",
+   "The median survival time"
+  ],
+  "answer": 1,
+  "why": "The survival curve shows the proportion still alive. The hazard shows how fast events are happening *right now* among those who've survived so far.",
+  "hints": [
+   "That's the survival curve, S(t).",
+   "",
+   "A count of deaths ignores how many people were at risk, and when.",
+   "The median is a single summary of the survival curve."
+  ]
+ }
+])
+```
+
+## Hazards and hazard ratios
+
+You met the hazard informally in @sec-hazard-intro: the death rate among
+people who are still alive. More precisely, the **hazard** $h(t)$ is the
+*instantaneous rate* of the event at time $t$, among people still
+event-free just before $t$. Think of it as "the risk right now, given
+you've made it this far". It is a rate, not a probability, so it can be
+bigger than 1.
+
+The log-rank test (Chapter 2) can tell us *whether* two groups differ. The
+Cox model goes further. It tells us *by how much* (as a hazard ratio), and
+it can include **several variables at once**, so each effect is adjusted
+for the others.
+
+The **Cox model** says that each person's hazard is a shared *baseline
+hazard* $h_0(t)$ multiplied by a factor that depends on their covariates:
+
+$$
+h(t \mid x) = h_0(t)\, \exp(\beta_1 x_1 + \beta_2 x_2 + \dots)
+$$
+
+- $\exp(\beta_k)$ is a **hazard ratio (HR)**. It is the multiplicative
+  change in the hazard for a one-unit increase in $x_k$, holding the other
+  covariates fixed.
+- HR = 1 means no association. HR < 1 means lower hazard (protective).
+  HR > 1 means higher hazard.
+- $h_0(t)$ is **never estimated or assumed to have any shape**. This is
+  why the Cox model is called *semi-parametric*, and why it is so widely
+  used.
+
+::: {.callout-important}
+## The key assumption: proportional hazards (PH)
+The HR is assumed to be **constant over time**. If women have 0.6 times the
+hazard of men at 1 month, they also have 0.6 times the hazard at 2 years.
+The hazards can rise and fall freely over time, but they have to rise and
+fall *together*.
+:::
+
+A common misinterpretation: "HR = 0.6" does **not** mean "40% fewer people
+die", or "people live 40% longer". It means the *rate* of death at any moment
+is 40% lower. The effect on the proportion surviving at time $t$ depends on
+the baseline hazard, and you can see it by plotting survival curves (see
+@sec-adjusted-curves).
+
+## Interactive app: proportional hazards explorer {#sec-app-ph}
+
+The left-hand plots show the **true** hazards and survival curves for two
+groups. The baseline hazard comes from a Weibull distribution:
+
+- shape < 1: hazard falls over time (e.g. risk after surgery);
+- shape = 1: constant hazard;
+- shape > 1: hazard rises over time (e.g. ageing).
+
+Tick **Allow non-proportional hazards** to give the treatment a different
+HR before and after a change-point. Then compare how a single Cox HR,
+fitted to a simulated sample, summarises the effect.
+
+```{ojs}
+//| echo: false
+import {kmFit, coxFit, makeRandom, quiz} from "./js/survtools.js"
+```
+
+::: {.app}
+```{ojs}
+//| echo: false
+viewof phScen = Inputs.radio(["Default", "Falling hazard (shape 0.5)", "Rising hazard (shape 2.5)", "Benefit that reverses (non-PH)"], {value: "Default", label: "Scenario"})
+phP = ({"Default": {}, "Falling hazard (shape 0.5)": {"shape": 0.5}, "Rising hazard (shape 2.5)": {"shape": 2.5}, "Benefit that reverses (non-PH)": {"nonph": true}})[phScen]
+viewof ph = Inputs.form({
+  shape:  Inputs.range([0.4, 3], {value: phP.shape ?? 1.0, step: 0.1, label: "Baseline hazard shape (Weibull)"}),
+  scale:  Inputs.range([1, 10],  {value: phP.scale ?? 4,   step: 0.5, label: "Baseline scale (years)"}),
+  hr1:    Inputs.range([0.2, 3], {value: phP.hr1 ?? 0.5, step: 0.05, label: "HR (treated vs control)"}),
+  nonph:  Inputs.toggle({label: "Allow non-proportional hazards", value: phP.nonph ?? false}),
+  hr2:    Inputs.range([0.2, 3], {value: phP.hr2 ?? 1.5, step: 0.05, label: "…HR after change-point"}),
+  tc:     Inputs.range([0.5, 8], {value: phP.tc ?? 2,   step: 0.5, label: "…change-point (years)"}),
+  n:      Inputs.range([50, 2000], {value: phP.n ?? 400, step: 50, label: "Simulated n per group"}),
+  seed:   Inputs.range([1, 100], {value: phP.seed ?? 3, step: 1, label: "Random seed"})
+}, {template: formGrid})
+formGrid = inputs => html`<div class="form-grid">${Object.values(inputs)}</div>`
+```
+
+```{ojs}
+//| echo: false
+phTmax = ph.scale * 2.5
+// cumulative baseline hazard and treated cumulative hazard (piecewise HR)
+H0 = t => Math.pow(t / ph.scale, ph.shape)
+h0 = t => (ph.shape / ph.scale) * Math.pow(Math.max(t, 1e-6) / ph.scale, ph.shape - 1)
+hrAt = t => (!ph.nonph || t < ph.tc) ? ph.hr1 : ph.hr2
+H1 = t => (!ph.nonph || t < ph.tc) ? ph.hr1 * H0(t) : ph.hr1 * H0(ph.tc) + ph.hr2 * (H0(t) - H0(ph.tc))
+phCurves = {
+  const pts = [];
+  for (let i = 1; i <= 200; i++) {
+    const t = phTmax * i / 200;
+    pts.push({t, group: "Control", h: h0(t), S: Math.exp(-H0(t)), cll: Math.log(H0(t))});
+    pts.push({t, group: "Treated", h: h0(t) * hrAt(t), S: Math.exp(-H1(t)), cll: Math.log(H1(t))});
+  }
+  return pts;
+}
+```
+
+```{ojs}
+//| echo: false
+phColor = ({legend: true, domain: ["Control", "Treated"], range: ["#E69F00", "#0072B2"]})
+html`<div class="app-grid">
+${Plot.plot({title: "Hazard h(t)", height: 230, width: 310, color: phColor,
+  y: {label: "Hazard", domain: [0, Math.min(d3.max(phCurves, d => d.h), 5 * d3.median(phCurves, d => d.h) + 0.1)], grid: true},
+  x: {label: "Years"},
+  marks: [Plot.line(phCurves, {x: "t", y: "h", stroke: "group", strokeWidth: 2, clip: true})]})}
+${Plot.plot({title: "Survival S(t)", height: 230, width: 310, color: phColor,
+  y: {domain: [0, 1], grid: true, label: "Survival"}, x: {label: "Years"},
+  marks: [Plot.line(phCurves, {x: "t", y: "S", stroke: "group", strokeWidth: 2})]})}
+${Plot.plot({title: "log(−log S(t)) vs log time: parallel lines = PH", height: 230, width: 310, color: phColor,
+  y: {label: "log(−log S)", grid: true}, x: {label: "Years (log scale)", type: "log", tickFormat: d => d},
+  marks: [Plot.line(phCurves.filter(d => isFinite(d.cll)), {x: "t", y: "cll", stroke: "group", strokeWidth: 2})]})}
+${Plot.plot({title: "Hazard ratio over time", height: 230, width: 310,
+  y: {label: "HR (log scale)", type: "log", domain: [0.15, 4], grid: true, ticks: [0.2, 0.3, 0.5, 1, 2, 3, 4], tickFormat: d => d}, x: {label: "Years"},
+  marks: [Plot.ruleY([1], {stroke: "#888"}),
+          Plot.line(phCurves.filter(d => d.group === "Treated"), {x: "t", y: d => hrAt(d.t), stroke: "black", strokeWidth: 2}),
+          Plot.ruleY([phFit.hr], {stroke: "#0072B2", strokeDasharray: "5,4", strokeWidth: 2}),
+          Plot.text([phFit.hr], {y: d => d, x: phTmax, text: d => `Cox HR = ${d.toFixed(2)}`, textAnchor: "end", dy: -7, fill: "#0072B2"})]})}
+</div>`
+```
+
+```{ojs}
+//| echo: false
+phSim = {
+  const r = makeRandom(ph.seed);
+  const out = [];
+  const admin = phTmax * 0.8;
+  for (const g of [0, 1]) for (let i = 0; i < ph.n; i++) {
+    const E = r.exp(1);  // unit exponential; invert cumulative hazard
+    let t;
+    if (g === 0) t = ph.scale * Math.pow(E, 1 / ph.shape);
+    else if (!ph.nonph || E < ph.hr1 * H0(ph.tc)) t = ph.scale * Math.pow(E / ph.hr1, 1 / ph.shape);
+    else t = ph.scale * Math.pow(H0(ph.tc) + (E - ph.hr1 * H0(ph.tc)) / ph.hr2, 1 / ph.shape);
+    const c = admin * r.unif() + admin * 0.25;
+    out.push({g, time: Math.min(t, c), event: t <= c ? 1 : 0});
+  }
+  return out;
+}
+phFit = coxFit(phSim.map(d => d.time), phSim.map(d => d.event), phSim.map(d => [d.g]))[0]
+phKM = [0, 1].flatMap(g => {
+  const d = phSim.filter(x => x.g === g);
+  return kmFit(d.map(x => x.time), d.map(x => x.event)).map(r => ({...r, group: g ? "Treated" : "Control"}));
+})
+```
+
+```{ojs}
+//| echo: false
+html`<div class="app-grid">
+${Plot.plot({title: `Kaplan–Meier curves from one simulated study (n = ${2 * ph.n})`, height: 250, width: 310, color: phColor,
+  y: {domain: [0, 1], grid: true, label: "Survival"}, x: {label: "Years"},
+  marks: [Plot.line(phKM, {x: "time", y: "surv", stroke: "group", curve: "step-after", strokeWidth: 2})]})}
+<div class="app-result">
+<h4>Cox model fitted to the simulated data</h4>
+<p>Estimated HR = <b>${phFit.hr.toFixed(2)}</b> (95% CI ${phFit.lower.toFixed(2)} to ${phFit.upper.toFixed(2)})</p>
+<p>True HR: <b>${ph.nonph ? `${ph.hr1} before year ${ph.tc}, ${ph.hr2} after` : ph.hr1}</b></p>
+<p style="color:#555">${ph.nonph
+  ? "With non-proportional hazards, the single Cox HR is a weighted average of the early and late HRs. The weights depend on when the events happen, which depends on follow-up and censoring. It may describe neither period well."
+  : "When hazards are proportional, the Cox HR estimates the true HR without our needing to know anything about the baseline hazard's shape. Try changing the shape: the estimate barely moves."}</p>
+</div>
+</div>`
+```
+:::
+
+::: {.callout-tip}
+## Things to try
+For each one, **predict first**: decide what you expect to see, then pick the scenario and check. Committing to a prediction, even a wrong one, makes the result stick.
+
+1. **Baseline shape.** **Predict:** if the hazard falls steeply over time,
+   or rises steeply, will the estimated HR change? *Then* pick **Falling
+   hazard (shape 0.5)** and **Rising hazard (shape 2.5)**, and compare the
+   Cox estimate with the Default.
+2. **The log(−log) plot.** On the Default scenario, look at the third plot.
+   **Predict:** what will happen to these two lines when hazards are *not*
+   proportional? Keep your answer for item 3.
+3. **Non-proportional hazards.** **Predict:** if treatment halves the
+   hazard for 2 years and then *raises* it by 50%, what will the KM curves
+   look like, and what single HR will the Cox model report? *Then* pick
+   **Benefit that reverses (non-PH)**.
+:::
+
+::: {.callout-note collapse="true" icon="false"}
+## Answers: what you should see
+1. **Baseline shape.** At shape 0.5 the hazard plunges early, and at 2.5 it
+   climbs steeply. In both cases the treated hazard is always half the
+   control hazard, so the HR line stays flat at 0.5. With the default seed
+   the Cox estimates are 0.47, 0.45 and 0.48 for shapes 0.5, 1 and 2.5.
+   These all differ from 0.5 only by sampling error. The model never needed
+   to know the shape of $h_0(t)$.
+2. **log(−log) plot.** The lines are parallel, and the vertical gap between
+   them is $\log(\text{HR}) = \log(0.5) \approx -0.69$. In real data you
+   would plot `plot(survfit(...), fun = "cloglog")`. Lines that converge,
+   diverge or cross suggest the PH assumption doesn't hold.
+3. **Non-PH (0.5 then 1.5).** The KM curves separate early, then the gap
+   closes as the treated group's hazard overtakes the control group's. The
+   log(−log) lines are no longer parallel, and the HR plot steps up at year 2.
+   With the default seed, the single Cox HR is about **0.86**, which suggests
+   a small benefit and describes neither period. In practice, `cox.zph()`
+   would flag this. You would then report period-specific HRs (split time
+   at year 2) or use the restricted mean survival time instead.
+:::
+
+## Fitting a Cox model in R
+
+### One covariate
+
+```{r}
+#| label: cox-sex
+cox_sex <- coxph(Surv(time, status) ~ sex, data = lung)
+summary(cox_sex)
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+The numbers that matter are the **HR**, its **confidence interval** and
+its **p-value**:
+
+- `n`, `number of events`: patients and deaths used in the model.
+- `sexFemale`: the effect of being female, compared with the reference
+  group (male).
+- `exp(coef)` = **HR = 0.59**. At any time, women had about 41% lower
+  hazard of death than men.
+- `lower .95`, `upper .95`: the 95% CI for the HR, **0.42 to 0.82**.
+- `Pr(>|z|)`: the p-value, 0.0015.
+- `coef` ($-0.531$) is the *log* of the HR. It's the scale R works on,
+  but you report `exp(coef)`. You can ignore `se(coef)`, `z` and
+  `exp(-coef)` for now.
+- The three tests at the bottom (likelihood ratio, Wald, score) all test
+  whether the model explains anything. They usually agree. The **score
+  (log-rank) test** is the log-rank test from Chapter 2.
+- `Concordance` measures how well the model predicts. See the optional box
+  at the end of the chapter.
+:::
+
+#### From a hazard ratio to a percentage {.unnumbered}
+
+The percentage change in the hazard is always $(\text{HR} - 1) \times 100\%$:
+
+| HR | Percentage change | In words |
+|---|---|---|
+| 0.59 | $(0.59 - 1) \times 100 = -41\%$ | 41% lower hazard |
+| 1.00 | 0% | no difference |
+| 1.50 | +50% | 50% higher hazard |
+| 2.50 | +150% | 150% higher hazard, or "2.5 times the hazard" |
+
+So when HR < 1, the reduction is $1 - \text{HR}$, and when HR > 1, the
+increase is $\text{HR} - 1$. Three things
+to watch:
+
+- **Use the HR (`exp(coef)`), not the coefficient (`coef`).** The
+  coefficient is the *log* HR. Here $\hat\beta = -0.531$, which is not
+  a 53% reduction.
+- **It isn't symmetric when you flip the comparison.** Women vs men is
+  HR = 0.59, but men vs women is $1/0.59 = 1.70$: men have a **70% higher**
+  hazard, *not* 41% higher. Both describe the same data. R prints this
+  reverse HR in the `exp(-coef)` column of `summary()`. Pick the
+  comparison that matches your research question, and describe it in that
+  direction.
+- **Convert the CI the same way.** A 95% CI of 0.42 to 0.82 means a
+  reduction of between 18% and 58%.
+
+And remember, it's the *hazard* (the instantaneous rate) that is 41% lower.
+That isn't the same as 41% fewer deaths (see the common misinterpretation
+at the start of this chapter).
+
+
+### Several covariates
+
+Now add age and ECOG performance status (0 = fully active, higher = more
+impaired). Only one patient has ECOG = 3, so we group it with 2 to avoid an
+unstable estimate.
+
+```{r}
+#| label: cox-multi
+lung <- lung |>
+  mutate(ecog = factor(pmin(ph.ecog, 2), levels = 0:2,
+                       labels = c("0 (active)", "1", "2+")))
+
+cox_multi <- coxph(Surv(time, status) ~ sex + age + ecog, data = lung)
+cox_multi
+```
+
+`broom::tidy()` gives a tidy table with hazard ratios and CIs:
+
+```{r}
+#| label: cox-tidy
+tidy(cox_multi, exponentiate = TRUE, conf.int = TRUE)
+```
+
+`exponentiate = TRUE` converts the coefficients to hazard ratios
+(`estimate`), and `conf.int = TRUE` adds their confidence intervals
+(`conf.low`, `conf.high`).
+
+Interpretation, each **holding the other variables constant**:
+
+- **Sex:** women have about 0.58 times the hazard of men.
+- **Age:** HR = 1.011 *per year*. Per-year HRs look tiny, so report them per
+  10 years: $1.011^{10} \approx 1.12$, a 12% higher hazard per decade (not
+  statistically significant here).
+- **ECOG:** compared with ECOG 0, ECOG 1 has HR ≈ 1.5 and ECOG 2+ has
+  HR ≈ 2.5.
+
+To get the HR per 10 years directly in R, use
+`exp(10 * coef(cox_multi)["age"])`, or rescale age before fitting
+(`mutate(age10 = age / 10)`).
+
+### A forest plot {#sec-forest}
+
+```{r}
+#| label: fig-forest
+#| fig-cap: "Hazard ratios (95% CI) from the multivariable Cox model."
+#| fig-height: 3
+#| code-fold: true
+#| code-summary: "Show the plotting code"
+tidy(cox_multi, exponentiate = TRUE, conf.int = TRUE) |>
+  mutate(term = recode(term, sexFemale = "Female (vs male)",
+                       age = "Age (per year)",
+                       ecog1 = "ECOG 1 (vs 0)", `ecog2+` = "ECOG 2+ (vs 0)")) |>
+  mutate(term = factor(term, levels = rev(term))) |>
+  ggplot(aes(x = estimate, y = term)) +
+  geom_vline(xintercept = 1, linetype = "dashed", colour = "grey50") +
+  geom_errorbar(aes(xmin = conf.low, xmax = conf.high), width = 0.15, orientation = "y") +
+  geom_point(size = 3, colour = "#0072B2") +
+  scale_x_log10() +
+  labs(x = "Hazard ratio (log scale)", y = NULL) +
+  theme_minimal(base_size = 13)
+```
+
+## Comparing three or more groups {#sec-cox-groups}
+
+In Chapter 2 (@sec-pairwise), the log-rank test showed that survival
+differed between the three ECOG groups, and pairwise tests showed *which*
+groups differed. A Cox model adds **how much** they differ. Put the group
+in as a factor:
+
+```{r}
+#| label: cox-ecog
+coxph(Surv(time, status) ~ ecog, data = lung) |>
+  tidy(exponentiate = TRUE, conf.int = TRUE)
+```
+
+Each HR compares one group with the **reference group**, the first level of
+the factor: here *ECOG 0*. Patients with ECOG 1 had about 1.45 times the
+hazard of death of ECOG 0 patients (95% CI 0.98–2.13), and patients with
+ECOG 2+ about 2.5 times (1.64–3.93). These are unadjusted HRs. The model
+in the previous section gave similar values after adjusting for sex and age.
+
+R uses the first level of the factor as the reference. To compare against a
+different group, use `relevel()`, e.g.
+`mutate(ecog = relevel(ecog, ref = "1"))`.
+
+### Ordered groups: a test for trend {#sec-trend}
+
+When the groups have a natural order (age bands, tumour grade, ECOG score),
+the usual question is whether risk **rises steadily** across them. A
+**test for trend** puts all the evidence into this single question, so it
+is more powerful than the omnibus log-rank test. To do it, give the
+ordered groups scores 1, 2, 3, … and fit a Cox model with the score as a
+number. Here are three age bands in `lung`:
+
+```{r}
+#| label: trend-test
+lung <- lung |>
+  mutate(age_grp = cut(age, c(0, 60, 70, Inf), right = FALSE,
+                       labels = c("<60", "60-69", "70+")))
+
+survdiff(Surv(time, status) ~ age_grp, data = lung)        # omnibus log-rank test
+
+trend <- coxph(Surv(time, status) ~ as.numeric(age_grp), data = lung)
+summary(trend)$sctest                                       # test for trend
+```
+
+The omnibus test is *not* significant ($p = 0.11$), but the trend test *is*
+($p = 0.049$). The omnibus test spreads its power across every possible
+pattern of differences. The trend test looks only for a steady increase,
+which is the pattern you'd expect for age. (`sctest` is the score test.
+For a single score variable, it is the log-rank test for trend.)
+
+:::: {.optional}
+::: {.callout-note collapse="true" icon="false"}
+## Going further (optional): every pairwise hazard ratio
+The **emmeans** package gives HRs (with adjusted CIs) for every pair of
+groups:
+`emmeans::emmeans(model, pairwise ~ ecog, type = "response")`.
+:::
+::::
+
+## Checking the proportional hazards assumption {#sec-ph-check}
+
+`cox.zph()` tests whether each covariate's effect changes over time, using
+**scaled Schoenfeld residuals**. A small p-value suggests the HR is not
+constant.
+
+```{r}
+#| label: cox-zph
+zph <- cox.zph(cox_multi)
+zph
+```
+
+::: {.callout-tip icon="false"}
+## How to read this output
+One row per variable, plus `GLOBAL` for the whole model. Look at the
+**p** column. A small p-value (e.g. < 0.05) suggests that variable's HR
+changes over time. (`chisq` and `df` are the test statistic and its
+degrees of freedom.)
+:::
+
+None of the tests is significant, so we have no strong evidence against
+PH. Always **look at the plots** too. The tests have low power in small
+datasets and are "too sensitive" in big ones. Each plot shows the estimated
+log-HR over time. Under PH, the smooth curve should be roughly horizontal.
+
+```{r}
+#| label: fig-zph
+#| fig-cap: "Scaled Schoenfeld residuals. Flat smooth lines are consistent with proportional hazards."
+#| fig-height: 3.5
+par(mfrow = c(1, 3), mar = c(4, 4, 2, 1))
+plot(zph, resid = FALSE, lwd = 2)
+```
+
+::: {.callout-note}
+## What to do if PH fails
+- **Stratify** on that variable: `coxph(Surv(time, status) ~ treat + strata(site))`.
+  Each stratum gets its own baseline hazard. The cost is that you get no HR
+  for the stratification variable.
+- **Split follow-up time** and estimate a separate HR for each period
+  (`survSplit()`), e.g. an HR for 0–6 months and another for after 6
+  months. There's a worked example in @sec-nonph-example.
+- Report a different effect measure, such as survival differences at
+  fixed times, or the **restricted mean survival time (RMST)** (see @sec-absolute).
+
+More advanced options include time-varying coefficients (`tt()` in
+`coxph()`).
+
+**For more**, including worked examples of `tt()`, the RMST and
+accelerated failure time models, see @sec-nonph.
+:::
+
+:::: {.optional}
+::: {.callout-note collapse="true" icon="false"}
+## Going further (optional): is the effect of age a straight line?
+A Cox model assumes each continuous covariate has a linear effect on the
+log-hazard. For example, each extra year of age multiplies the hazard by
+the same amount. A quick check is to fit a flexible curve (a penalised
+spline) and test whether it's needed:
+
+```{r}
+#| label: cox-spline
+coxph(Surv(time, status) ~ sex + pspline(age, df = 3) + ecog, data = lung)
+```
+
+The `nonlin` row tests departure from a straight line. Here it is not
+significant, so a linear age term is reasonable.
+:::
+::::
+
+### Practice: fill in the blanks
+
+*This is a live exercise: edit the code, click **Run Code**, and your answer is checked automatically. See @sec-live-exercises if you haven't used one before.*
+
+`ph.karno` is the physician's Karnofsky score: 0–100, higher = fitter. Replace each `______`, then click **Run Code**. (The first run downloads the broom package, so it takes a little longer.)
+
+```{webr}
+#| setup: true
+#| exercise: ex_karno
+for (pkg in c("broom")) {
+  if (!requireNamespace(pkg, quietly = TRUE)) install.packages(pkg, quiet = TRUE)
+}
+library(survival)
+lung <- survival::lung
+lung$status <- lung$status - 1        # 0 = censored, 1 = died
+lung$sex  <- factor(lung$sex, 1:2, c("Male", "Female"))
+lung$ecog <- factor(pmin(lung$ph.ecog, 2), levels = 0:2, labels = c("0 (active)", "1", "2+"))
+library(broom)
+```
+
+```{webr}
+#| exercise: ex_karno
+#| caption: "Practice: a Cox model with the Karnofsky score"
+# Cox model with sex and the Karnofsky score
+m <- coxph(Surv(time, status) ~ sex + ______, data = lung)
+
+# Hazard ratios with 95% CIs
+tidy(m, exponentiate = ______, conf.int = TRUE)
+
+# HR for a 10-point higher score
+exp(10 * coef(m)["ph.karno"])
+
+# Check proportional hazards
+cox.zph(______)
+```
+
+::: {.hint exercise="ex_karno"}
+::: {.callout-note collapse="false"}
+## Hint 1
+The variable to add is `ph.karno`. `exponentiate` needs `TRUE` to turn coefficients into hazard ratios.
+:::
+:::
+
+::: {.hint exercise="ex_karno"}
+::: {.callout-note collapse="false"}
+## Hint 2
+`cox.zph()` takes the fitted model, which here is called `m`.
+:::
+:::
+
+::: {.solution exercise="ex_karno"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+m <- coxph(Surv(time, status) ~ sex + ph.karno, data = lung)
+tidy(m, exponentiate = TRUE, conf.int = TRUE)
+exp(10 * coef(m)["ph.karno"])
+cox.zph(m)
+```
+
+Women had HR = 0.60 (95% CI 0.43 to 0.84) compared with men with the same
+Karnofsky score: about a 40% lower hazard. Each 10-point higher score has
+HR ≈ 0.86, about a 14% lower hazard, so a higher (fitter) score is good news.
+`cox.zph()` gives p = 0.005 for `ph.karno`. Its effect seems to change over
+follow-up, so a single HR doesn't tell the whole story. The worked
+example just below shows what to do about it.
+:::
+:::
+
+```{webr}
+#| exercise: ex_karno
+#| check: true
+env <- .envir_result
+m <- env$m
+if (!inherits(m, "coxph") || !setequal(attr(terms(m), "term.labels"), c("sex", "ph.karno"))) {
+  list(correct = FALSE,
+       message = "The model should contain <code>sex</code> and <code>ph.karno</code>: fill the first blank with <code>ph.karno</code>.")
+} else if (!grepl("exponentiate\\s*=\\s*(TRUE|T)\\b", .user_code)) {
+  list(correct = FALSE,
+       message = "Use <code>exponentiate = TRUE</code> so that <code>tidy()</code> reports hazard ratios rather than log hazard ratios.")
+} else if (!inherits(.result, "cox.zph")) {
+  list(correct = FALSE,
+       message = "The last line should check proportional hazards for your model: <code>cox.zph(m)</code>.")
+} else {
+  list(correct = TRUE,
+       message = "Correct! Women: HR 0.60. Each 10 Karnofsky points: HR 0.86. Notice that <code>cox.zph()</code> flags <code>ph.karno</code> (p = 0.005). What does that mean?")
+}
+```
+
+## Worked example: an effect that fades {#sec-nonph-example}
+
+In the practice above, `cox.zph()` flagged the Karnofsky score
+(p = 0.005). Here is how to deal with that, using the second option in the
+"What to do if PH fails" box: **split follow-up time** and estimate a
+separate HR for each period.
+
+First look at the plot. It shows how the log-HR for `ph.karno` changes over
+follow-up:
+
+```{r}
+#| label: fig-karno-zph
+#| fig-cap: "Estimated log-HR for the Karnofsky score over follow-up. The effect is strongest early and fades towards zero."
+#| fig-height: 3.5
+m_karno <- coxph(Surv(time, status) ~ sex + ph.karno,
+                 data = lung)
+plot(cox.zph(m_karno)[2], resid = FALSE, lwd = 2)
+abline(h = 0, lty = 2)
+```
+
+`Beta(t)` is the estimated log-HR (per point of the score) at each time.
+For the first 6 months or so the line is well below zero: a higher score is
+strongly protective. After that it rises, and reaches zero (no effect) at
+about a year. So we split each patient's follow-up at 180 days. `survSplit()` gives each patient one row
+per period, with `tstart` and `time` marking where each period begins and
+ends. This is the *counting-process* form of survival data, which you'll
+meet again in @sec-immortal:
+
+```{r}
+#| label: karno-split
+lung_split <- survSplit(Surv(time, status) ~ ., data = lung,
+                        cut = 180, episode = "period")
+lung_split$period <- factor(lung_split$period, levels = 1:2,
+                            labels = c("0-6 months",
+                                       "after 6 months"))
+
+# Patient 1 died at 306 days, so has two rows
+lung_split[1:2, c("tstart", "time", "status", "period")]
+```
+
+Then let the effect of `ph.karno` differ by period. `ph.karno:period` gives
+a separate Karnofsky HR for each period:
+
+```{r}
+#| label: karno-period-cox
+m_period <- coxph(Surv(tstart, time, status) ~
+                    sex + ph.karno:period,
+                  data = lung_split)
+
+# HR per 10 points of the Karnofsky score, in each period
+exp(10 * coef(m_period)[-1])
+```
+
+In the first 6 months, each 10 points higher on the Karnofsky score goes
+with a 31% lower hazard (HR 0.69, 95% CI 0.58 to 0.84). After 6 months the
+effect has almost gone (HR 0.96, 95% CI 0.83 to 1.11). That makes clinical
+sense: a doctor's rating of how well a patient is now says a lot about the
+next few months, and less about the more distant future. A single HR
+(0.86) would have averaged these two quite different effects.
+`cox.zph(m_period)` now shows no evidence against PH (global p = 0.10).
+
+How to choose the cut point? Use the plot, and clinical knowledge, and
+keep it simple: one or two cut points, chosen before looking at the
+p-values.
+
+## Adjusted survival curves {#sec-adjusted-curves}
+
+A Cox model can predict survival curves for chosen covariate patterns.
+These are often easier to interpret than HRs:
+
+```{r}
+#| label: fig-cox-pred
+#| fig-cap: "Model-predicted survival for a 65-year-old with ECOG 1, by sex."
+# Two example patients: identical except for sex
+newdat <- data.frame(sex = c("Male", "Female"), age = 65, ecog = "1")
+pred <- survfit(cox_multi, newdata = newdat)
+
+# One column of predicted survival per patient: put them in a data frame
+pred_df <- data.frame(
+  time = rep(pred$time, 2),
+  surv = c(pred$surv[, 1], pred$surv[, 2]),
+  sex  = rep(c("Male", "Female"), each = length(pred$time))
+)
+
+ggplot(pred_df, aes(x = time, y = surv, colour = sex)) +
+  geom_step(linewidth = 1) +
+  scale_colour_manual(values = c(Male = "#E69F00", Female = "#0072B2")) +
+  labs(x = "Days", y = "Predicted survival", colour = NULL) +
+  theme_minimal(base_size = 13)
+```
+
+`summary()` gives the predicted survival at chosen times:
+
+```{r}
+#| label: cox-pred-1yr
+summary(pred, times = 365)
+```
+
+For a 65-year-old with ECOG 1, the model predicts 1-year survival of 32%
+for a man (`survival1`, the first row of `newdat`) and 52% for a woman
+(`survival2`). That's a 20-percentage-point difference, which is easier to
+explain than "HR 0.58". Notice that the gap in survival depends on which
+patient you pick: for a patient with a worse prognosis, the same HR gives a
+different gap. These curves are for **particular patients**, not averages
+over the whole group.
+
+## Writing it up
+
+A sentence template for a hazard ratio:
+
+> In a Cox model adjusted for **[other variables]**, **[group]** was
+> associated with a **[X]**% **[lower/higher]** hazard of **[event]**
+> compared with **[reference group]** (HR **[value]**, 95% CI **[a]** to
+> **[b]**, p = **[value]**).
+
+For a continuous variable, give the HR for a meaningful change, such as
+10 years of age. Also say how you checked proportional hazards. Filled in for
+`cox_multi`:
+
+> In a Cox model adjusted for age and ECOG performance status, women had a
+> 42% lower hazard of death than men (HR 0.58, 95% CI 0.41 to 0.80,
+> p = 0.001). Each additional 10 years of age was associated with a
+> non-significant 12% higher hazard (HR 1.12, 95% CI 0.93 to 1.34). Compared
+> with ECOG 0, the hazard was higher for ECOG 1 (HR 1.51, 95% CI 1.02 to
+> 2.23) and ECOG 2+ (HR 2.50, 95% CI 1.60 to 3.90). Tests and plots of
+> scaled Schoenfeld residuals showed no evidence against proportional
+> hazards.
+
+## Good practice
+
+- **Events per variable.** Aim for at least 10–20 *events* (not patients)
+  per estimated coefficient. A factor with $k$ levels uses $k-1$.
+- **Missing data.** `coxph()` silently drops incomplete rows. Check
+  `n` and `number of events` in the output. One row was dropped above.
+  @sec-missing explains when this matters and what to do instead.
+
+:::: {.optional}
+::: {.callout-note collapse="true" icon="false"}
+## Going further (optional): concordance and ties
+- **Concordance (C-index)**, shown in `summary()`. This is the probability
+  that, of two random patients, the model gives the higher risk to the one
+  who dies first. 0.5 = no better than chance, 1 = perfect. Here it is
+  about 0.64.
+- **Ties.** When several deaths happen on the same day, the model needs a
+  rule to handle them. R uses the Efron method by default. That's fine;
+  leave it.
+:::
+::::
+
+## Quick quiz {.unnumbered}
+
+Choose an answer to each question. You'll get instant feedback and can change your answer as often as you like.
+
+```{ojs}
+//| echo: false
+quiz([
+ {
+  "q": "A Cox model gives HR = 0.60 for treatment. Which interpretation is correct?",
+  "options": [
+   "40% fewer treated patients die",
+   "Treated patients live 40% longer",
+   "At any time, the hazard (instantaneous event rate) in treated patients is 60% of that in controls",
+   "60% of treated patients survive"
+  ],
+  "answer": 2,
+  "why": "An HR compares *rates* at each moment. How much that changes the proportion surviving, or survival time, depends on the baseline hazard and the length of follow-up.",
+  "hints": [
+   "That describes a risk ratio for the proportion who die, which is not the same thing.",
+   "An HR isn't a ratio of survival times. (An accelerated failure time model gives those.)",
+   "",
+   "An HR says nothing directly about the proportion surviving."
+  ]
+ },
+ {
+  "q": "The HR for women compared with men is 0.59 (41% lower hazard). What is the HR for men compared with women?",
+  "options": [
+   "1.41 (41% higher hazard)",
+   "1.70 (70% higher hazard)",
+   "0.41",
+   "−0.59"
+  ],
+  "answer": 1,
+  "why": "Flipping the comparison inverts the HR: 1/0.59 = 1.70. Percentage changes aren't symmetric. A 41% reduction one way is a 70% increase the other way. R shows this in the exp(-coef) column.",
+  "hints": [
+   "Percentage changes don't flip symmetrically. Invert the HR instead: 1/0.59.",
+   "",
+   "That's the size of the reduction (1 − 0.59), not an HR.",
+   "HRs are ratios, so they're always positive. To reverse the comparison, take the reciprocal."
+  ]
+ },
+ {
+  "q": "The HR for age is 1.02 per year. What is the approximate HR for a 10-year difference in age?",
+  "options": [
+   "1.02",
+   "1.20",
+   "1.22",
+   "10.2"
+  ],
+  "answer": 2,
+  "why": "Effects multiply on the hazard scale: 1.02<sup>10</sup> ≈ 1.22. Equivalently, exp(10 × β).",
+  "hints": [
+   "That's the HR per 1 year.",
+   "Close, but HRs multiply rather than add: 1.02<sup>10</sup>, not 1 + 10 × 0.02.",
+   "",
+   "That multiplies the HR by 10 instead of raising it to the power 10."
+  ]
+ },
+ {
+  "q": "<code>cox.zph()</code> gives p = 0.001 for one covariate. What does this suggest?",
+  "options": [
+   "The covariate has a strong effect on survival",
+   "The covariate's hazard ratio changes over follow-up time (non-proportional hazards)",
+   "The covariate should be removed from the model",
+   "The model fits the data perfectly"
+  ],
+  "answer": 1,
+  "why": "cox.zph() tests whether each covariate's effect is constant over time. Possible remedies are stratifying, splitting time, a time-varying coefficient, or a different effect measure.",
+  "hints": [
+   "Effect size is shown by the HR and its p-value in the Cox output, not by cox.zph().",
+   "",
+   "Non-PH is a reason to model the covariate differently, not to drop it, especially if it's a confounder.",
+   "A small p-value is evidence *against* the PH assumption."
+  ]
+ },
+ {
+  "q": "Why is the Cox model called 'semi-parametric'?",
+  "options": [
+   "It uses half of the data",
+   "The covariate effects are modelled, but the baseline hazard's shape is left completely unspecified",
+   "It assumes a Weibull distribution",
+   "It only works with categorical covariates"
+  ],
+  "answer": 1,
+  "why": "The exp(βx) part is parametric. The baseline hazard h<sub>0</sub>(t) is non-parametric, which is why the model works for hazards of any shape, as the app showed.",
+  "hints": [
+   "It uses all the data.",
+   "",
+   "That's a fully parametric model, e.g. survreg(..., dist = 'weibull').",
+   "Continuous covariates are fine (age, for example)."
+  ]
+ }
+])
+```
+
+## Exercise
+
+### Exercise 3.1
+
+`cox_multi`, the model from this chapter (`sex + age + ecog`), is already
+fitted in each box. The exercise has three parts. Each box is checked
+separately.
+
+#### Part 1: add weight loss {.unnumbered}
+
+Add `wt.loss` (weight loss in the last 6 months, in pounds) to the model. Report its HR per 10 lb, and how many observations are used. Then check proportional hazards for the new model (make that the last line).
+
+```{webr}
+#| setup: true
+#| exercise: ex_cox_wt
+library(survival)
+lung <- survival::lung
+lung$status <- lung$status - 1        # 0 = censored, 1 = died
+lung$sex  <- factor(lung$sex, 1:2, c("Male", "Female"))
+lung$ecog <- factor(pmin(lung$ph.ecog, 2), levels = 0:2, labels = c("0 (active)", "1", "2+"))
+cox_multi <- coxph(Surv(time, status) ~ sex + age + ecog, data = lung)
+```
+
+```{webr}
+#| exercise: ex_cox_wt
+#| caption: "Exercise 3.1, part 1: adding weight loss"
+# Fit the model with wt.loss added
+m2 <- coxph(Surv(time, status) ~ ______, data = lung)
+
+# HR per 10 lb, and number of observations used
+exp(10 * coef(m2)["wt.loss"])
+m2$n
+
+# Check proportional hazards
+______
+```
+
+::: {.hint exercise="ex_cox_wt"}
+::: {.callout-note collapse="false"}
+## Hint 1
+The formula is the one from `cox_multi` with `+ wt.loss` added: `sex + age + ecog + wt.loss`.
+:::
+:::
+
+::: {.hint exercise="ex_cox_wt"}
+::: {.callout-note collapse="false"}
+## Hint 2
+Proportional hazards are checked with `cox.zph(m2)`.
+:::
+:::
+
+::: {.solution exercise="ex_cox_wt"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+m2 <- coxph(Surv(time, status) ~ sex + age + ecog + wt.loss, data = lung)
+exp(10 * coef(m2)["wt.loss"])
+m2$n
+cox.zph(m2)
+```
+
+Adding `wt.loss` drops patients with missing weight loss, so 213
+observations are used instead of 227. Its HR per 10 lb is 0.91 (95% CI 0.80 to
+1.04), close to 1 and not significant. `cox.zph()` shows no evidence against
+proportional hazards (global p = 0.36).
+:::
+:::
+
+```{webr}
+#| exercise: ex_cox_wt
+#| check: true
+m2 <- .envir_result$m2
+if (!inherits(m2, "coxph") || !setequal(attr(terms(m2), "term.labels"), c("sex", "age", "ecog", "wt.loss"))) {
+  list(correct = FALSE, message = "The model should contain <code>sex + age + ecog + wt.loss</code>.")
+} else if (!inherits(.result, "cox.zph")) {
+  list(correct = FALSE, message = "Make the last line the proportional hazards check: <code>cox.zph(m2)</code>.")
+} else {
+  list(correct = TRUE, message = "Correct! 213 observations are used (14 have missing weight loss). HR per 10 lb = 0.91, close to 1. No evidence against proportional hazards (global p = 0.36).")
+}
+```
+
+#### Part 2: stratify by ECOG {.unnumbered}
+
+Refit `cox_multi` **stratified** by `ecog`, instead of adjusting for it. How does the HR for sex change?
+
+```{webr}
+#| setup: true
+#| exercise: ex_cox_strata
+library(survival)
+lung <- survival::lung
+lung$status <- lung$status - 1        # 0 = censored, 1 = died
+lung$sex  <- factor(lung$sex, 1:2, c("Male", "Female"))
+lung$ecog <- factor(pmin(lung$ph.ecog, 2), levels = 0:2, labels = c("0 (active)", "1", "2+"))
+cox_multi <- coxph(Surv(time, status) ~ sex + age + ecog, data = lung)
+```
+
+```{webr}
+#| exercise: ex_cox_strata
+#| caption: "Exercise 3.1, part 2: stratifying"
+# Replace ecog with a stratification term
+coxph(Surv(time, status) ~ sex + age + ______, data = lung)
+```
+
+::: {.hint exercise="ex_cox_strata"}
+::: {.callout-note collapse="false"}
+## Hint 1
+Stratification uses `strata()` around the variable's name.
+:::
+:::
+
+::: {.solution exercise="ex_cox_strata"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+coxph(Surv(time, status) ~ sex + age + strata(ecog), data = lung)
+```
+
+Stratifying by ECOG gives each ECOG group its own baseline hazard, so there
+is no HR for ECOG any more. The HR for sex barely changes: 0.57, compared with
+0.58 in `cox_multi`.
+:::
+:::
+
+```{webr}
+#| exercise: ex_cox_strata
+#| check: true
+r <- .result
+if (!inherits(r, "coxph") || !grepl("strata\\(\\s*ecog\\s*\\)", .user_code)) {
+  list(correct = FALSE, message = "Write <code>strata(ecog)</code> in the formula, in place of <code>ecog</code>.")
+} else if (!("sexFemale" %in% names(coef(r)))) {
+  list(correct = FALSE, message = "Keep <code>sex</code> and <code>age</code> in the model as well.")
+} else {
+  list(correct = TRUE, message = sprintf("Correct! The HR for sex is %.2f when stratifying by ECOG, compared with 0.58 when adjusting for it: almost the same.", exp(coef(r)[["sexFemale"]])))
+}
+```
+
+#### Part 3: test for trend {.unnumbered}
+
+ECOG is ordered (0, 1, 2+). Carry out a test for trend across the `ecog` groups, and compare it with the omnibus log-rank test (@sec-trend did the same for age bands).
+
+```{webr}
+#| setup: true
+#| exercise: ex_cox_trend
+library(survival)
+lung <- survival::lung
+lung$status <- lung$status - 1        # 0 = censored, 1 = died
+lung$sex  <- factor(lung$sex, 1:2, c("Male", "Female"))
+lung$ecog <- factor(pmin(lung$ph.ecog, 2), levels = 0:2, labels = c("0 (active)", "1", "2+"))
+```
+
+```{webr}
+#| exercise: ex_cox_trend
+#| caption: "Exercise 3.1, part 3: a test for trend"
+# Omnibus log-rank test across the three ECOG groups
+survdiff(Surv(time, status) ~ ecog, data = lung)
+
+# Test for trend: the ECOG groups as a score 1, 2, 3
+trend <- coxph(Surv(time, status) ~ ______(ecog), data = lung)
+summary(trend)$______
+```
+
+::: {.hint exercise="ex_cox_trend"}
+::: {.callout-note collapse="false"}
+## Hint 1
+To turn the ordered groups into scores 1, 2, 3, use `as.numeric(ecog)`.
+:::
+:::
+
+::: {.hint exercise="ex_cox_trend"}
+::: {.callout-note collapse="false"}
+## Hint 2
+The test for trend is the score test, stored as `sctest` in the model summary.
+:::
+:::
+
+::: {.solution exercise="ex_cox_trend"}
+::: {.callout-tip collapse="false"}
+## Solution
+```r
+survdiff(Surv(time, status) ~ ecog, data = lung)
+trend <- coxph(Surv(time, status) ~ as.numeric(ecog), data = lung)
+summary(trend)$sctest
+```
+
+The omnibus test gives $\chi^2 \approx 19.0$ on 2 degrees of freedom. The
+trend test gives $\chi^2 \approx 17.2$ on just **1** degree of freedom.
+Almost all of the difference between the groups is a steady worsening of
+survival as ECOG rises.
+:::
+:::
+
+```{webr}
+#| exercise: ex_cox_trend
+#| check: true
+r <- .result
+if (!(is.numeric(r) && all(c("test", "df", "pvalue") %in% names(r)))) {
+  list(correct = FALSE, message = "The last line should be the score test from the summary: <code>summary(trend)$sctest</code>.")
+} else if (r[["df"]] != 1 || abs(r[["test"]] - 17.2) > 0.2) {
+  list(correct = FALSE, message = "Treat the ECOG groups as a number: <code>as.numeric(ecog)</code>. That gives a test on 1 degree of freedom.")
+} else {
+  list(correct = TRUE, message = "Correct! The trend test gives chi-square ≈ 17.2 on 1 df, nearly all of the omnibus chi-square (19.0 on 2 df). Survival worsens steadily as ECOG rises.")
+}
+```
+
+## Summary
+
+::: {.callout-important icon="false"}
+## Key points
+- The **Cox model** describes each patient's hazard as a baseline hazard multiplied by $\exp(\beta x)$. The baseline hazard's shape is never specified.
+- $\exp(\text{coef})$ is the **hazard ratio**. The percentage change in hazard is $(\text{HR} - 1) \times 100\%$. Reversing the comparison gives $1/\text{HR}$.
+- In a model with several variables, each HR is **adjusted** for the others. For a factor, each level is compared with the **reference** level.
+- A **test for trend** is the most powerful way to test ordered groups for a steady change in risk.
+- The model assumes **proportional hazards** (a constant HR). Check it with `cox.zph()` and its plots. If it fails, stratify, split follow-up time, or use another effect measure.
+:::
+
+**Answering the question.** After adjusting for age and ECOG, women had a hazard ratio of 0.58 (95% CI 0.41 to 0.80) compared with men. At any point in time, their hazard of death was about 42% lower. The difference wasn't explained by age or fitness.
+
+## Further reading
+
+All of these are free to read online unless marked otherwise. The whole
+book's reading list, grouped by topic, is in @sec-further-reading.
+
+- @bradburn2003: **Start here.** A gentle introduction to Cox regression and building a model with several variables. Part II of the series from Chapter 1.
+- @bradburn2003b: Part III of the same series: choosing which variables to include, and checking a model's assumptions and fit, including proportional hazards.
+- @spruance2004: What a hazard ratio does and doesn't tell you, and how it relates to probabilities and median survival times.
+- @stensrud2020: A short, thought-provoking piece. Hazard ratios often change over time, so the authors suggest showing survival curves rather than relying on a single HR and a test of proportional hazards. (May need institutional access.)
+- @survival_vignette: *More advanced.* The survival package author's own guide, with much more on Cox models and their extensions in R.

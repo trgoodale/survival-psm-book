@@ -1,0 +1,88 @@
+project:
+  type: book
+  output-dir: _book
+  resources:
+    - js/survtools.js
+    - js/extras.js
+    - data/cohort.csv
+    - data/surgery_trial.csv
+    - R/simulate_cohort.R
+    - R/pairwise_logrank.R
+    - apps/survival-explorer/app.R
+    - apps/psm-explorer/app.R
+    - LICENSE.md
+
+book:
+  title: "Survival Analysis & Propensity Scores in R"
+  subtitle: "Kaplan–Meier curves, Cox regression and propensity score matching — with interactive apps"
+  author: "Tom Goodale"
+  date: "2026-10-30"
+  chapters:
+    - index.qmd
+    - 00-before-you-start.qmd
+    - part: "The core course"
+      chapters:
+        - 01-survival-data.qmd
+        - 02-kaplan-meier.qmd
+        - 03-cox-regression.qmd
+        - 04-traps.qmd
+        - 05-propensity-scores.qmd
+        - 06-matching-in-r.qmd
+        - 07-putting-it-together.qmd
+    - part: part-going-further.qmd
+      chapters:
+        - 08-shiny-apps.qmd
+        - 09-weighting.qmd
+        - 10-non-ph.qmd
+        - 11-missing-data.qmd
+  appendices:
+    - a1-cheatsheet.qmd
+    - a2-glossary.qmd
+    - a3-further-reading.qmd
+    - references.qmd
+  repo-actions: []
+  page-footer:
+    center: >
+      © 2026 Tom Goodale. Text and figures licensed under
+      [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/);
+      code licensed under the [MIT licence](LICENSE.md).
+
+bibliography: references.bib
+
+format:
+  live-html:
+    # R that runs in the reader's browser (quarto-live / webR). It only loads
+    # on pages that contain live exercises.
+    webr:
+      repos:
+        - https://repo.r-wasm.org
+        - https://cran.r-universe.dev
+      resources: []
+    live:
+      show-hints: true
+      show-solutions: true
+      show-grading: true
+    theme:
+      light: cosmo
+      dark: darkly
+    css: styles.css
+    toc: true
+    toc-depth: 3
+    number-sections: true
+    code-copy: true
+    code-tools: false
+    code-link: false
+    fig-width: 7
+    fig-height: 4.5
+    fig-dpi: 110
+    callout-appearance: default
+
+execute:
+  freeze: auto
+  warning: false
+  message: false
+
+knitr:
+  opts_chunk:
+    comment: "#>"
+    fig.align: center
