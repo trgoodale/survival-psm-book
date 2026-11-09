@@ -1,0 +1,96 @@
+/* Interactive app containers */
+.app {
+  border: 1px solid rgba(0, 114, 178, 0.35);
+  border-left: 5px solid #0072B2;
+  border-radius: 8px;
+  padding: 1rem 1.2rem 0.6rem;
+  margin: 1.5rem 0;
+  background: rgba(49, 130, 189, 0.04);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  column-gap: 1.5rem;
+  --label-width: 125px;
+  --input-width: 150px;
+  margin-bottom: 0.5rem;
+}
+.form-grid form { margin-bottom: 0.25rem; }
+
+.app-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.app-result {
+  padding: 0.8rem 1rem;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.03);
+}
+.app-result h4 { margin-top: 0; font-size: 1.05rem; }
+
+/* Estimate tiles in the PSM app */
+.estimates { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+.est {
+  flex: 1 1 150px;
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  background: rgba(0, 0, 0, 0.04);
+  display: flex; flex-direction: column;
+}
+.est span { font-size: 0.85rem; opacity: 0.8; }
+.est b { font-size: 1.6rem; }
+.est small { opacity: 0.75; }
+.est.bad  { background: rgba(213, 94, 0, 0.12); }
+.est.good { background: rgba(0, 114, 178, 0.12); }
+
+/* Observable Plot titles */
+figure h2 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.2rem; }
+
+@media (prefers-color-scheme: dark) {
+  .app { background: rgba(49, 130, 189, 0.08); }
+}
+
+/* Self-check quizzes */
+.quiz { margin: 1rem 0 1.5rem; }
+.quiz-q {
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 8px;
+  padding: 0.6rem 1rem 0.7rem;
+  margin-bottom: 0.8rem;
+}
+.quiz-q legend {
+  float: left; width: 100%;
+  font-size: 1rem; font-weight: 600;
+  margin-bottom: 0.4rem;
+}
+.quiz-num {
+  display: inline-block; min-width: 1.6em; height: 1.6em;
+  border-radius: 50%; text-align: center; line-height: 1.6em;
+  background: #0072B2; color: white; font-size: 0.85em; margin-right: 0.3em;
+}
+.quiz-opt {
+  display: block; clear: both;
+  padding: 0.3rem 0.5rem; margin: 0.15rem 0;
+  border-radius: 5px; cursor: pointer;
+}
+.quiz-opt:hover { background: rgba(127, 127, 127, 0.08); }
+.quiz-opt.is-right { background: rgba(0, 114, 178, 0.15); }
+.quiz-opt.is-wrong { background: rgba(213, 94, 0, 0.14); }
+.quiz-feedback { margin-top: 0.4rem; padding: 0 0.5rem; font-size: 0.95rem; }
+.quiz-feedback.ok b { color: #0072B2; }
+.quiz-feedback.no b { color: #D55E00; }
+.quiz-score { font-weight: 600; }
+
+
+/* "Going further (optional)" boxes: visually quieter */
+.optional .callout {
+  border-left-color: #999 !important;
+}
+.optional .callout .callout-title-container { color: #666; font-style: italic; }
+
+/* Keep downloadable file names on one line */
+a[download] { white-space: nowrap; }

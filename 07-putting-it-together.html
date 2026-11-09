@@ -1,0 +1,1911 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.38">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>7&nbsp; Putting it together: a matched survival analysis – Survival Analysis &amp; Propensity Scores in R</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+/* CSS for citations */
+div.csl-bib-body { }
+div.csl-entry {
+  clear: both;
+}
+.hanging-indent div.csl-entry {
+  margin-left:2em;
+  text-indent:-2em;
+}
+div.csl-left-margin {
+  min-width:2em;
+  float:left;
+}
+div.csl-right-inline {
+  margin-left:2em;
+  padding-left:1em;
+}
+div.csl-indent {
+  margin-left: 2em;
+}</style>
+
+
+<script src="site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="site_libs/quarto-nav/headroom.min.js"></script>
+<script src="site_libs/clipboard/clipboard.min.js"></script>
+<script src="site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="site_libs/quarto-search/fuse.min.js"></script>
+<script src="site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="./">
+<link href="./part-going-further.html" rel="next">
+<link href="./06-matching-in-r.html" rel="prev">
+<script src="site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="site_libs/quarto-html/popper.min.js"></script>
+<script src="site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="site_libs/quarto-html/anchor.min.js"></script>
+<link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-dark-0a6b7249c26820e032cb0bd839ff02b1.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="site_libs/bootstrap/bootstrap-832e3d7b6b94ddcc90a000f8fabe51a9.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="site_libs/bootstrap/bootstrap-dark-a650804e777b326bf1a0b0c4c361015f.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<link href="site_libs/bootstrap/bootstrap-832e3d7b6b94ddcc90a000f8fabe51a9.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script src="site_libs/quarto-contrib/live-runtime/live-runtime.js" type="module"></script>
+<link href="site_libs/quarto-contrib/live-runtime/live-runtime.css" rel="stylesheet">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<script type="module" src="site_libs/quarto-ojs/quarto-ojs-runtime.js"></script>
+<link href="site_libs/quarto-ojs/quarto-ojs.css" rel="stylesheet">
+
+
+<link rel="stylesheet" href="styles.css">
+</head>
+
+<body class="nav-sidebar floating quarto-light"><script id="quarto-html-before-body" type="application/javascript">
+    const toggleBodyColorMode = (bsSheetEl) => {
+      const mode = bsSheetEl.getAttribute("data-mode");
+      const bodyEl = window.document.querySelector("body");
+      if (mode === "dark") {
+        bodyEl.classList.add("quarto-dark");
+        bodyEl.classList.remove("quarto-light");
+      } else {
+        bodyEl.classList.add("quarto-light");
+        bodyEl.classList.remove("quarto-dark");
+      }
+    }
+    const toggleBodyColorPrimary = () => {
+      const bsSheetEl = window.document.querySelector("link#quarto-bootstrap:not([rel=disabled-stylesheet])");
+      if (bsSheetEl) {
+        toggleBodyColorMode(bsSheetEl);
+      }
+    }
+    const setColorSchemeToggle = (alternate) => {
+      const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+      for (let i=0; i < toggles.length; i++) {
+        const toggle = toggles[i];
+        if (toggle) {
+          if (alternate) {
+            toggle.classList.add("alternate");
+          } else {
+            toggle.classList.remove("alternate");
+          }
+        }
+      }
+    };
+    const toggleColorMode = (alternate) => {
+      // Switch the stylesheets
+      const primaryStylesheets = window.document.querySelectorAll('link.quarto-color-scheme:not(.quarto-color-alternate)');
+      const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+      manageTransitions('#quarto-margin-sidebar .nav-link', false);
+      if (alternate) {
+        // note: dark is layered on light, we don't disable primary!
+        enableStylesheet(alternateStylesheets);
+        for (const sheetNode of alternateStylesheets) {
+          if (sheetNode.id === "quarto-bootstrap") {
+            toggleBodyColorMode(sheetNode);
+          }
+        }
+      } else {
+        disableStylesheet(alternateStylesheets);
+        enableStylesheet(primaryStylesheets)
+        toggleBodyColorPrimary();
+      }
+      manageTransitions('#quarto-margin-sidebar .nav-link', true);
+      // Switch the toggles
+      setColorSchemeToggle(alternate)
+      // Hack to workaround the fact that safari doesn't
+      // properly recolor the scrollbar when toggling (#1455)
+      if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+        manageTransitions("body", false);
+        window.scrollTo(0, 1);
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          manageTransitions("body", true);
+        }, 40);
+      }
+    }
+    const disableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        stylesheet.rel = 'disabled-stylesheet';
+      }
+    }
+    const enableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        if(stylesheet.rel !== 'stylesheet') { // for Chrome, which will still FOUC without this check
+          stylesheet.rel = 'stylesheet';
+        }
+      }
+    }
+    const manageTransitions = (selector, allowTransitions) => {
+      const els = window.document.querySelectorAll(selector);
+      for (let i=0; i < els.length; i++) {
+        const el = els[i];
+        if (allowTransitions) {
+          el.classList.remove('notransition');
+        } else {
+          el.classList.add('notransition');
+        }
+      }
+    }
+    const isFileUrl = () => {
+      return window.location.protocol === 'file:';
+    }
+    const hasAlternateSentinel = () => {
+      let styleSentinel = getColorSchemeSentinel();
+      if (styleSentinel !== null) {
+        return styleSentinel === "alternate";
+      } else {
+        return false;
+      }
+    }
+    const setStyleSentinel = (alternate) => {
+      const value = alternate ? "alternate" : "default";
+      if (!isFileUrl()) {
+        window.localStorage.setItem("quarto-color-scheme", value);
+      } else {
+        localAlternateSentinel = value;
+      }
+    }
+    const getColorSchemeSentinel = () => {
+      if (!isFileUrl()) {
+        const storageValue = window.localStorage.getItem("quarto-color-scheme");
+        return storageValue != null ? storageValue : localAlternateSentinel;
+      } else {
+        return localAlternateSentinel;
+      }
+    }
+    const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+      const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+      const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+      let newTheme = '';
+      if(authorPrefersDark) {
+        newTheme = isAlternate ? baseTheme : alternateTheme;
+      } else {
+        newTheme = isAlternate ? alternateTheme : baseTheme;
+      }
+      const changeGiscusTheme = () => {
+        // From: https://github.com/giscus/giscus/issues/336
+        const sendMessage = (message) => {
+          const iframe = document.querySelector('iframe.giscus-frame');
+          if (!iframe) return;
+          iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+        }
+        sendMessage({
+          setConfig: {
+            theme: newTheme
+          }
+        });
+      }
+      const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+      if (isGiscussLoaded) {
+        changeGiscusTheme();
+      }
+    };
+    const authorPrefersDark = false;
+    const darkModeDefault = authorPrefersDark;
+      document.querySelector('link#quarto-text-highlighting-styles.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+      document.querySelector('link#quarto-bootstrap.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+    let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+    // Dark / light mode switch
+    window.quartoToggleColorScheme = () => {
+      // Read the current dark / light value
+      let toAlternate = !hasAlternateSentinel();
+      toggleColorMode(toAlternate);
+      setStyleSentinel(toAlternate);
+      toggleGiscusIfUsed(toAlternate, darkModeDefault);
+      window.dispatchEvent(new Event('resize'));
+    };
+    // Switch to dark mode if need be
+    if (hasAlternateSentinel()) {
+      toggleColorMode(true);
+    } else {
+      toggleColorMode(false);
+    }
+  </script>
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./01-survival-data.html">The core course</a></li><li class="breadcrumb-item"><a href="./07-putting-it-together.html"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Putting it together: a matched survival analysis</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="Search" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="./">Survival Analysis &amp; Propensity Scores in R</a> 
+        <div class="sidebar-tools-main">
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="Toggle dark mode"><i class="bi"></i></a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="Search"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Welcome</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./00-before-you-start.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Before you start</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">The core course</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./01-survival-data.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Time-to-event data and censoring</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./02-kaplan-meier.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Kaplan–Meier curves and the log-rank test</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./03-cox-regression.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Cox proportional hazards regression</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./04-traps.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Common traps: censoring, competing events and time zero</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./05-propensity-scores.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Confounding and propensity scores</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./06-matching-in-r.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">Matching in R</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./07-putting-it-together.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Putting it together: a matched survival analysis</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="./part-going-further.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Going further</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./08-shiny-apps.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">8</span>&nbsp; <span class="chapter-title">Shiny apps for open-ended exploration</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./09-weighting.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">9</span>&nbsp; <span class="chapter-title">Weighting and other matching methods</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./10-non-ph.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">10</span>&nbsp; <span class="chapter-title">When proportional hazards fail</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./11-missing-data.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">11</span>&nbsp; <span class="chapter-title">Missing data</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true">
+ <span class="menu-text">Appendices</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./a1-cheatsheet.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">R cheat sheet</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./a2-glossary.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">B</span>&nbsp; <span class="chapter-title">Glossary</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./a3-further-reading.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Further reading</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./references.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">References</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#warm-up-remember-chapters-5-and-6" id="toc-warm-up-remember-chapters-5-and-6" class="nav-link active" data-scroll-target="#warm-up-remember-chapters-5-and-6">Warm-up: remember Chapters 5 and 6?</a></li>
+  <li><a href="#step-1-design-no-outcomes-yet" id="toc-step-1-design-no-outcomes-yet" class="nav-link" data-scroll-target="#step-1-design-no-outcomes-yet"><span class="header-section-number">7.1</span> Step 1: design (no outcomes yet)</a></li>
+  <li><a href="#step-2-kaplanmeier-curves-before-and-after-matching" id="toc-step-2-kaplanmeier-curves-before-and-after-matching" class="nav-link" data-scroll-target="#step-2-kaplanmeier-curves-before-and-after-matching"><span class="header-section-number">7.2</span> Step 2: Kaplan–Meier curves before and after matching</a></li>
+  <li><a href="#step-3-estimate-the-hazard-ratio" id="toc-step-3-estimate-the-hazard-ratio" class="nav-link" data-scroll-target="#step-3-estimate-the-hazard-ratio"><span class="header-section-number">7.3</span> Step 3: estimate the hazard ratio</a>
+  <ul class="collapse">
+  <li><a href="#practice-fill-in-the-blanks" id="toc-practice-fill-in-the-blanks" class="nav-link" data-scroll-target="#practice-fill-in-the-blanks"><span class="header-section-number">7.3.1</span> Practice: fill in the blanks</a></li>
+  </ul></li>
+  <li><a href="#step-4-compare-the-approaches" id="toc-step-4-compare-the-approaches" class="nav-link" data-scroll-target="#step-4-compare-the-approaches"><span class="header-section-number">7.4</span> Step 4: compare the approaches</a></li>
+  <li><a href="#sec-absolute" id="toc-sec-absolute" class="nav-link" data-scroll-target="#sec-absolute"><span class="header-section-number">7.5</span> Step 5: absolute effects are easier to explain</a></li>
+  <li><a href="#step-6-sensitivity-to-unmeasured-confounding" id="toc-step-6-sensitivity-to-unmeasured-confounding" class="nav-link" data-scroll-target="#step-6-sensitivity-to-unmeasured-confounding"><span class="header-section-number">7.6</span> Step 6: sensitivity to unmeasured confounding</a></li>
+  <li><a href="#reporting-checklist" id="toc-reporting-checklist" class="nav-link" data-scroll-target="#reporting-checklist"><span class="header-section-number">7.7</span> Reporting checklist</a>
+  <ul class="collapse">
+  <li><a href="#writing-it-up-an-example" id="toc-writing-it-up-an-example" class="nav-link" data-scroll-target="#writing-it-up-an-example"><span class="header-section-number">7.7.1</span> Writing it up: an example</a></li>
+  </ul></li>
+  <li><a href="#quick-quiz" id="toc-quick-quiz" class="nav-link" data-scroll-target="#quick-quiz">Quick quiz</a></li>
+  <li><a href="#exercise" id="toc-exercise" class="nav-link" data-scroll-target="#exercise"><span class="header-section-number">7.8</span> Exercise</a>
+  <ul class="collapse">
+  <li><a href="#exercise-7.1" id="toc-exercise-7.1" class="nav-link" data-scroll-target="#exercise-7.1"><span class="header-section-number">7.8.1</span> Exercise 7.1</a></li>
+  </ul></li>
+  <li><a href="#summary" id="toc-summary" class="nav-link" data-scroll-target="#summary"><span class="header-section-number">7.9</span> Summary</a></li>
+  <li><a href="#further-reading" id="toc-further-reading" class="nav-link" data-scroll-target="#further-reading"><span class="header-section-number">7.10</span> Further reading</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./01-survival-data.html">The core course</a></li><li class="breadcrumb-item"><a href="./07-putting-it-together.html"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Putting it together: a matched survival analysis</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span id="sec-together" class="quarto-section-identifier"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Putting it together: a matched survival analysis</span></span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<div class="callout callout-style-default callout-note no-icon callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>In this chapter
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><strong>The question.</strong> Once treated and untreated patients have been matched, does the treatment reduce the hazard of death, and by how much?</p>
+<p><strong>By the end of this chapter you will be able to:</strong></p>
+<ul>
+<li>carry out a complete propensity-score-matched survival analysis: design, KM curves, and a Cox model with robust standard errors;</li>
+<li>compare naive, adjusted and matched estimates with the known true answer;</li>
+<li>report both relative effects (HRs) and absolute effects (survival at a fixed time);</li>
+<li>write up a matched analysis using a reporting checklist.</li>
+</ul>
+</div>
+</div>
+<section id="warm-up-remember-chapters-5-and-6" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="warm-up-remember-chapters-5-and-6">Warm-up: remember Chapters 5 and 6?</h2>
+<p>Two quick questions to bring back the key ideas from last time.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb1" data-startfrom="43" data-source-offset="0"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 42;"><span id="cb1-43"><a href="#cb1-43" aria-hidden="true" tabindex="-1"></a><span class="fu">quiz</span>([</span>
+<span id="cb1-44"><a href="#cb1-44" aria-hidden="true" tabindex="-1"></a> {</span>
+<span id="cb1-45"><a href="#cb1-45" aria-hidden="true" tabindex="-1"></a>  <span class="st">"q"</span><span class="op">:</span> <span class="st">"What is a propensity score?"</span><span class="op">,</span></span>
+<span id="cb1-46"><a href="#cb1-46" aria-hidden="true" tabindex="-1"></a>  <span class="st">"options"</span><span class="op">:</span> [</span>
+<span id="cb1-47"><a href="#cb1-47" aria-hidden="true" tabindex="-1"></a>   <span class="st">"The probability of being treated, given the measured covariates"</span><span class="op">,</span></span>
+<span id="cb1-48"><a href="#cb1-48" aria-hidden="true" tabindex="-1"></a>   <span class="st">"The probability of dying during follow-up"</span><span class="op">,</span></span>
+<span id="cb1-49"><a href="#cb1-49" aria-hidden="true" tabindex="-1"></a>   <span class="st">"A measure of how imbalanced two groups are"</span><span class="op">,</span></span>
+<span id="cb1-50"><a href="#cb1-50" aria-hidden="true" tabindex="-1"></a>   <span class="st">"The predicted survival time"</span></span>
+<span id="cb1-51"><a href="#cb1-51" aria-hidden="true" tabindex="-1"></a>  ]<span class="op">,</span></span>
+<span id="cb1-52"><a href="#cb1-52" aria-hidden="true" tabindex="-1"></a>  <span class="st">"answer"</span><span class="op">:</span> <span class="dv">0</span><span class="op">,</span></span>
+<span id="cb1-53"><a href="#cb1-53" aria-hidden="true" tabindex="-1"></a>  <span class="st">"why"</span><span class="op">:</span> <span class="st">"It combines all the measured confounders into one number, each patient's chance of being treated. Matching on it balances those confounders."</span><span class="op">,</span></span>
+<span id="cb1-54"><a href="#cb1-54" aria-hidden="true" tabindex="-1"></a>  <span class="st">"hints"</span><span class="op">:</span> [</span>
+<span id="cb1-55"><a href="#cb1-55" aria-hidden="true" tabindex="-1"></a>   <span class="st">""</span><span class="op">,</span></span>
+<span id="cb1-56"><a href="#cb1-56" aria-hidden="true" tabindex="-1"></a>   <span class="st">"The propensity score is about treatment, not the outcome. Outcomes play no part in it."</span><span class="op">,</span></span>
+<span id="cb1-57"><a href="#cb1-57" aria-hidden="true" tabindex="-1"></a>   <span class="st">"That's the SMD."</span><span class="op">,</span></span>
+<span id="cb1-58"><a href="#cb1-58" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Survival times play no part in the propensity score."</span></span>
+<span id="cb1-59"><a href="#cb1-59" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb1-60"><a href="#cb1-60" aria-hidden="true" tabindex="-1"></a> }<span class="op">,</span></span>
+<span id="cb1-61"><a href="#cb1-61" aria-hidden="true" tabindex="-1"></a> {</span>
+<span id="cb1-62"><a href="#cb1-62" aria-hidden="true" tabindex="-1"></a>  <span class="st">"q"</span><span class="op">:</span> <span class="st">"After matching, which result tells you the matching worked?"</span><span class="op">,</span></span>
+<span id="cb1-63"><a href="#cb1-63" aria-hidden="true" tabindex="-1"></a>  <span class="st">"options"</span><span class="op">:</span> [</span>
+<span id="cb1-64"><a href="#cb1-64" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Every covariate has |SMD| below 0.1"</span><span class="op">,</span></span>
+<span id="cb1-65"><a href="#cb1-65" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Treated and untreated patients have the same survival"</span><span class="op">,</span></span>
+<span id="cb1-66"><a href="#cb1-66" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Every covariate has a p-value above 0.05"</span><span class="op">,</span></span>
+<span id="cb1-67"><a href="#cb1-67" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Every treated patient found a match"</span></span>
+<span id="cb1-68"><a href="#cb1-68" aria-hidden="true" tabindex="-1"></a>  ]<span class="op">,</span></span>
+<span id="cb1-69"><a href="#cb1-69" aria-hidden="true" tabindex="-1"></a>  <span class="st">"answer"</span><span class="op">:</span> <span class="dv">0</span><span class="op">,</span></span>
+<span id="cb1-70"><a href="#cb1-70" aria-hidden="true" tabindex="-1"></a>  <span class="st">"why"</span><span class="op">:</span> <span class="st">"Balance is judged by SMDs, which don't depend on sample size. Outcomes shouldn't be looked at until the design is settled."</span><span class="op">,</span></span>
+<span id="cb1-71"><a href="#cb1-71" aria-hidden="true" tabindex="-1"></a>  <span class="st">"hints"</span><span class="op">:</span> [</span>
+<span id="cb1-72"><a href="#cb1-72" aria-hidden="true" tabindex="-1"></a>   <span class="st">""</span><span class="op">,</span></span>
+<span id="cb1-73"><a href="#cb1-73" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Outcomes play no part in judging the matching. That's the point of settling the design first."</span><span class="op">,</span></span>
+<span id="cb1-74"><a href="#cb1-74" aria-hidden="true" tabindex="-1"></a>   <span class="st">"p-values depend on sample size, so they're a poor guide to balance."</span><span class="op">,</span></span>
+<span id="cb1-75"><a href="#cb1-75" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Keeping everyone can mean accepting poor matches. Balance is what matters."</span></span>
+<span id="cb1-76"><a href="#cb1-76" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb1-77"><a href="#cb1-77" aria-hidden="true" tabindex="-1"></a> }</span>
+<span id="cb1-78"><a href="#cb1-78" aria-hidden="true" tabindex="-1"></a>])</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+<div id="ojs-cell-1" data-nodetype="expression">
+
+</div>
+</div>
+</div>
+<p>This chapter runs a complete analysis of the simulated cohort (<a href="05-propensity-scores.html#sec-cohort" class="quarto-xref"><span>Section 5.2</span></a>), from raw data to a reported treatment effect. You’ll need <code>simulate_cohort()</code> loaded, as in Chapter 5 (<code>source("simulate_cohort.R")</code>). The question is:</p>
+<blockquote class="blockquote">
+<p><strong>Among treated patients, does treatment reduce the hazard of death?</strong></p>
+</blockquote>
+<p>The true answer is built into the data: a conditional HR of 0.70. As you’ll see in Step 4, the matched analysis estimates a slightly different quantity, whose true value is about 0.73.</p>
+</section>
+<section id="step-1-design-no-outcomes-yet" class="level2" data-number="7.1">
+<h2 data-number="7.1" class="anchored" data-anchor-id="step-1-design-no-outcomes-yet"><span class="header-section-number">7.1</span> Step 1: design (no outcomes yet)</h2>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>cohort <span class="ot">&lt;-</span> <span class="fu">simulate_cohort</span>(<span class="at">n =</span> <span class="dv">2000</span>, <span class="at">seed =</span> <span class="dv">2026</span>)</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>m_out <span class="ot">&lt;-</span> <span class="fu">matchit</span>(</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>  treated <span class="sc">~</span> age <span class="sc">+</span> female <span class="sc">+</span> diabetes <span class="sc">+</span> bmi <span class="sc">+</span> smoker,</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">data =</span> cohort, <span class="at">method =</span> <span class="st">"nearest"</span>, <span class="at">distance =</span> <span class="st">"glm"</span>,</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">link =</span> <span class="st">"linear.logit"</span>, <span class="at">caliper =</span> <span class="fl">0.2</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Balance check: every |SMD| should be &lt; 0.1</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="fu">bal.tab</span>(m_out, <span class="at">binary =</span> <span class="st">"std"</span>, <span class="at">thresholds =</span> <span class="fu">c</span>(<span class="at">m =</span> <span class="fl">0.1</span>), <span class="at">un =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt; Balance Measures
+#&gt;              Type Diff.Un Diff.Adj    M.Threshold
+#&gt; distance Distance  0.7633   0.0936 Balanced, &lt;0.1
+#&gt; age       Contin.  0.5073   0.0715 Balanced, &lt;0.1
+#&gt; female     Binary -0.1307   0.0285 Balanced, &lt;0.1
+#&gt; diabetes   Binary  0.3941   0.0712 Balanced, &lt;0.1
+#&gt; bmi       Contin.  0.3499   0.0351 Balanced, &lt;0.1
+#&gt; smoker     Binary  0.1359  -0.0124 Balanced, &lt;0.1
+#&gt; 
+#&gt; Balance tally for mean differences
+#&gt;                    count
+#&gt; Balanced, &lt;0.1         6
+#&gt; Not Balanced, &gt;0.1     0
+#&gt; 
+#&gt; Variable with the greatest mean difference
+#&gt;  Variable Diff.Adj    M.Threshold
+#&gt;       age   0.0715 Balanced, &lt;0.1
+#&gt; 
+#&gt; Sample sizes
+#&gt;           Control Treated
+#&gt; All          1151     849
+#&gt; Matched       714     714
+#&gt; Unmatched     437     135</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>matched <span class="ot">&lt;-</span> <span class="fu">match.data</span>(m_out)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+<p>This is the same balance table as in Chapter 6: <code>Diff.Un</code> is the SMD <strong>before</strong> matching and <code>Diff.Adj</code> is the SMD <strong>after</strong> matching. Every <code>Diff.Adj</code> is below 0.1, so balance is good and the design is settled. Only <em>now</em> do we look at survival.</p>
+</section>
+<section id="step-2-kaplanmeier-curves-before-and-after-matching" class="level2" data-number="7.2">
+<h2 data-number="7.2" class="anchored" data-anchor-id="step-2-kaplanmeier-curves-before-and-after-matching"><span class="header-section-number">7.2</span> Step 2: Kaplan–Meier curves before and after matching</h2>
+<div class="cell" data-layout-align="center">
+<details class="code-fold">
+<summary>Show the plotting code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>p_before <span class="ot">&lt;-</span> <span class="fu">survfit2</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated, <span class="at">data =</span> cohort) <span class="sc">|&gt;</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggsurvfit</span>(<span class="at">linewidth =</span> <span class="dv">1</span>) <span class="sc">+</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">add_confidence_interval</span>() <span class="sc">+</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">add_risktable</span>(<span class="at">risktable_stats =</span> <span class="st">"n.risk"</span>) <span class="sc">+</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_ggsurvfit</span>(<span class="at">x_scales =</span> <span class="fu">list</span>(<span class="at">breaks =</span> <span class="dv">0</span><span class="sc">:</span><span class="dv">8</span>)) <span class="sc">+</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"Before matching (confounded)"</span>, <span class="at">x =</span> <span class="st">"Years"</span>)</span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>p_after <span class="ot">&lt;-</span> <span class="fu">survfit2</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated, <span class="at">data =</span> matched) <span class="sc">|&gt;</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggsurvfit</span>(<span class="at">linewidth =</span> <span class="dv">1</span>) <span class="sc">+</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">add_confidence_interval</span>() <span class="sc">+</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">add_risktable</span>(<span class="at">risktable_stats =</span> <span class="st">"n.risk"</span>) <span class="sc">+</span></span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_ggsurvfit</span>(<span class="at">x_scales =</span> <span class="fu">list</span>(<span class="at">breaks =</span> <span class="dv">0</span><span class="sc">:</span><span class="dv">8</span>)) <span class="sc">+</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">title =</span> <span class="st">"After matching"</span>, <span class="at">x =</span> <span class="st">"Years"</span>)</span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>patchwork<span class="sc">::</span><span class="fu">wrap_plots</span>(<span class="fu">ggsurvfit_build</span>(p_before), <span class="fu">ggsurvfit_build</span>(p_after), <span class="at">ncol =</span> <span class="dv">1</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-km-before-after" class="quarto-float quarto-figure quarto-figure-center anchored" data-fig-align="center">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-km-before-after-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="07-putting-it-together_files/figure-html/fig-km-before-after-1.png" class="img-fluid quarto-figure quarto-figure-center figure-img" width="825">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-km-before-after-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;7.1: Kaplan–Meier curves by treatment in the full (confounded) cohort and in the propensity-score-matched cohort.
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>Before matching, the treated group seems to do slightly <em>worse</em>, because they were older and sicker. After matching, the comparison is like for like and the benefit appears.</p>
+<div class="optional">
+<div class="callout callout-style-default callout-note no-icon callout-titled">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-2-contents" aria-controls="callout-2" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Going further (optional): which log-rank test for matched data?
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-2" class="callout-2-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>A standard log-rank test on matched data ignores the pairing, and so it is slightly conservative. The Cox model with robust standard errors below is the better test. If you want a pair-respecting log-rank-type test, use <code>coxph(... + strata(subclass))</code>: its score test is a stratified log-rank test.</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="step-3-estimate-the-hazard-ratio" class="level2" data-number="7.3">
+<h2 data-number="7.3" class="anchored" data-anchor-id="step-3-estimate-the-hazard-ratio"><span class="header-section-number">7.3</span> Step 3: estimate the hazard ratio</h2>
+<p>In the matched sample we fit a Cox model with <strong>treatment only</strong>. Two details matter:</p>
+<ul>
+<li><code>weights = weights</code>: these are all 1 here, but they are needed for matching with replacement or with variable ratios. Including them always is a good habit.</li>
+<li><code>robust = TRUE, cluster = subclass</code>: a <strong>cluster-robust (sandwich) standard error</strong>. This allows for the fact that matched pairs are similar <span class="citation" data-cites="austin2013">(<a href="references.html#ref-austin2013" role="doc-biblioref">Austin 2014</a>)</span>. It’s called a <em>sandwich</em> because of the shape of its formula: a filling (how much the data actually vary) between two identical slices of “bread” (from the usual, model-based formula).</li>
+</ul>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>cox_matched <span class="ot">&lt;-</span> <span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated,</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>                     <span class="at">data =</span> matched, <span class="at">weights =</span> weights,</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>                     <span class="at">robust =</span> <span class="cn">TRUE</span>, <span class="at">cluster =</span> subclass)</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(cox_matched)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt; Call:
+#&gt; coxph(formula = Surv(time, status) ~ treated, data = matched, 
+#&gt;     weights = weights, robust = TRUE, cluster = subclass)
+#&gt; 
+#&gt;   n= 1428, number of events= 485 
+#&gt; 
+#&gt;             coef exp(coef) se(coef) robust se      z Pr(&gt;|z|)    
+#&gt; treated -0.38908   0.67768  0.09199   0.08980 -4.333 1.47e-05 ***
+#&gt; ---
+#&gt; Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+#&gt; 
+#&gt;         exp(coef) exp(-coef) lower .95 upper .95
+#&gt; treated    0.6777      1.476    0.5683    0.8081
+#&gt; 
+#&gt; Concordance= 0.552  (se = 0.012 )
+#&gt; Likelihood ratio test= 18.14  on 1 df,   p=2e-05
+#&gt; Wald test            = 18.77  on 1 df,   p=1e-05
+#&gt; Score (logrank) test = 18.11  on 1 df,   p=2e-05,   Robust = 18.57  p=2e-05
+#&gt; 
+#&gt;   (Note: the likelihood ratio and score tests assume independence of
+#&gt;      observations within a cluster, the Wald and robust score tests do not).</code></pre>
+</div>
+</div>
+<div class="callout callout-style-default callout-tip no-icon callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>How to read this output
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>This is read the same way as in Chapter 3. Look at <code>exp(coef)</code> (the HR, <strong>0.68</strong>) and its 95% CI (<strong>0.57 to 0.81</strong>). The new column is <code>robust se</code>, the cluster-robust standard error. R uses it automatically for the CI and p-value.</p>
+</div>
+</div>
+<p>Check the proportional hazards assumption for this model too:</p>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cox.zph</span>(cox_matched)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt;         chisq df    p
+#&gt; treated 0.768  1 0.38
+#&gt; GLOBAL  0.768  1 0.38</code></pre>
+</div>
+</div>
+<p>p = 0.38, so there’s no evidence that the treatment HR changes over follow-up.</p>
+<section id="practice-fill-in-the-blanks" class="level3" data-number="7.3.1">
+<h3 data-number="7.3.1" class="anchored" data-anchor-id="practice-fill-in-the-blanks"><span class="header-section-number">7.3.1</span> Practice: fill in the blanks</h3>
+<p><em>This is a live exercise: edit the code, click <strong>Run Code</strong>, and your answer is checked automatically. See <a href="01-survival-data.html#sec-live-exercises" class="quarto-xref"><span>Section 1.4.1</span></a> if you haven’t used one before.</em></p>
+<p>The matched data from this chapter, <code>matched</code>, are already loaded. Replace each <code>______</code>, then click <strong>Run Code</strong>.</p>
+<div class="cell" data-layout-align="center" data-setup="true" data-exercise="ex_matched_cox">
+<script type="exercise-setup-ex_matched_cox-contents">
+eyJhdHRyIjp7ImVkaXQiOnRydWUsImV2YWwiOnRydWUsImV4ZXJjaXNlIjoiZXhfbWF0Y2hlZF9jb3giLCJzZXR1cCI6dHJ1ZX0sImNvZGUiOiJmb3IgKHBrZyBpbiBjKFwiTWF0Y2hJdFwiKSkge1xuICBpZiAoIXJlcXVpcmVOYW1lc3BhY2UocGtnLCBxdWlldGx5ID0gVFJVRSkpIGluc3RhbGwucGFja2FnZXMocGtnLCBxdWlldCA9IFRSVUUpXG59XG5saWJyYXJ5KE1hdGNoSXQpXG5zaW11bGF0ZV9jb2hvcnQgPC0gZnVuY3Rpb24obiA9IDIwMDAsIGhyX3RyZWF0ID0gMC43MCwgc2VlZCA9IDIwMjYpIHtcbiAgc2V0LnNlZWQoc2VlZClcbiAgYWdlICAgICAgPC0gcm91bmQocG1pbihwbWF4KHJub3JtKG4sIDY1LCAxMCksIDM1KSwgOTUpKVxuICBmZW1hbGUgICA8LSByYmlub20obiwgMSwgMC40NSlcbiAgZGlhYmV0ZXMgPC0gcmJpbm9tKG4sIDEsIHBsb2dpcygtMS40ICsgMC4wNCAqIChhZ2UgLSA2NSkpKVxuICBibWkgICAgICA8LSByb3VuZChybm9ybShuLCAyOCwgNC41KSwgMSlcbiAgc21va2VyICAgPC0gcmJpbm9tKG4sIDEsIDAuMjUpXG4gIGxwX3RyZWF0IDwtIC0wLjYgKyAwLjA2ICogKGFnZSAtIDY1KSArIDEuMCAqIGRpYWJldGVzICsgMC4wOCAqIChibWkgLSAyOCkgLVxuICAgIDAuMyAqIGZlbWFsZSArIDAuNCAqIHNtb2tlclxuICB0cmVhdGVkIDwtIHJiaW5vbShuLCAxLCBwbG9naXMobHBfdHJlYXQpKVxuICBscF9kZWF0aCA8LSBsb2coaHJfdHJlYXQpICogdHJlYXRlZCArIDAuMDYgKiAoYWdlIC0gNjUpICsgMC42ICogZGlhYmV0ZXMgK1xuICAgIDAuMDMgKiAoYm1pIC0gMjgpIC0gMC4yNSAqIGZlbWFsZSArIDAuNTUgKiBzbW9rZXJcbiAgc2hhcGUgIDwtIDEuMlxuICBsYW1iZGEgPC0gMC4wNSAgICAgICAgICAgICAgICAgICAgICAgIyBiYXNlbGluZSBoYXphcmQgc2NhbGUgKHBlciB5ZWFyKVxuICB0X2V2ZW50IDwtICgtbG9nKHJ1bmlmKG4pKSAvIChsYW1iZGEgKiBleHAobHBfZGVhdGgpKSleKDEgLyBzaGFwZSlcbiAgdF9hZG1pbiAgIDwtIHJ1bmlmKG4sIDMsIDgpICAgICAgICAgICMgc3R1ZHkgZW5kcyAzLTggeWVhcnMgYWZ0ZXIgZW50cnlcbiAgdF9kcm9wb3V0IDwtIHJleHAobiwgcmF0ZSA9IDAuMDQpXG4gIHRfY2VucyAgICA8LSBwbWluKHRfYWRtaW4sIHRfZHJvcG91dClcbiAgdGltZSAgIDwtIHBtaW4odF9ldmVudCwgdF9jZW5zKVxuICBzdGF0dXMgPC0gYXMuaW50ZWdlcih0X2V2ZW50IDw9IHRfY2VucylcbiAgZGF0YS5mcmFtZShcbiAgICBpZCAgICAgICA9IHNlcV9sZW4obiksXG4gICAgYWdlLCBmZW1hbGUsIGRpYWJldGVzLCBibWksIHNtb2tlcixcbiAgICB0cmVhdGVkLFxuICAgIHRpbWUgICAgID0gcm91bmQodGltZSwgMyksXG4gICAgc3RhdHVzXG4gIClcbn1cbmNvaG9ydCA8LSBzaW11bGF0ZV9jb2hvcnQobiA9IDIwMDAsIHNlZWQgPSAyMDI2KVxubGlicmFyeShzdXJ2aXZhbClcbm1fb3V0IDwtIG1hdGNoaXQodHJlYXRlZCB+IGFnZSArIGZlbWFsZSArIGRpYWJldGVzICsgYm1pICsgc21va2VyLCBkYXRhID0gY29ob3J0LFxuICAgICAgICAgICAgICAgICBtZXRob2QgPSBcIm5lYXJlc3RcIiwgbGluayA9IFwibGluZWFyLmxvZ2l0XCIsIGNhbGlwZXIgPSAwLjIpXG5tYXRjaGVkIDwtIG1hdGNoLmRhdGEobV9vdXQpIn0=
+</script>
+</div>
+<div class="cell" data-layout-align="center" data-exercise="ex_matched_cox" data-caption="Practice: the matched analysis">
+<div>
+<div id="webr-2" class="exercise-cell">
+
+</div>
+<script type="webr-2-contents">
+eyJhdHRyIjp7ImNhcHRpb24iOiJQcmFjdGljZTogdGhlIG1hdGNoZWQgYW5hbHlzaXMiLCJlZGl0Ijp0cnVlLCJldmFsIjp0cnVlLCJleGVyY2lzZSI6ImV4X21hdGNoZWRfY294In0sImNvZGUiOiIjIENveCBtb2RlbCBpbiB0aGUgbWF0Y2hlZCBkYXRhLCB3aXRoIHJvYnVzdCBTRXMgZm9yIG1hdGNoZWQgcGFpcnNcbmNveF9tIDwtIGNveHBoKFN1cnYodGltZSwgc3RhdHVzKSB+IF9fX19fXywgZGF0YSA9IG1hdGNoZWQsXG4gICAgICAgICAgICAgICB3ZWlnaHRzID0gd2VpZ2h0cyxcbiAgICAgICAgICAgICAgIHJvYnVzdCA9IF9fX19fXywgY2x1c3RlciA9IF9fX19fXylcbnN1bW1hcnkoY294X20pJGNvbmYuaW50ICAgICAgICAgICAgICAgICAgICAgIyBIUiBhbmQgOTUlIENJXG5cbiMgU3Vydml2YWwgYXQgMyB5ZWFycyBpbiBlYWNoIGdyb3VwXG5rbV9tIDwtIHN1cnZmaXQoU3Vydih0aW1lLCBzdGF0dXMpIH4gdHJlYXRlZCwgZGF0YSA9IG1hdGNoZWQpXG5zdW1tYXJ5KGttX20sIHRpbWVzID0gX19fX19fKSJ9
+</script>
+</div>
+</div>
+<div class="hint webr-ojs-exercise exercise-hint d-none" data-exercise="ex_matched_cox">
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-4-contents" aria-controls="callout-4" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Hint 1
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-4" class="callout-4-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<p>The model contains only the treatment variable, <code>treated</code>. A robust SE needs <code>robust = TRUE</code>.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="hint webr-ojs-exercise exercise-hint d-none" data-exercise="ex_matched_cox">
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-5-contents" aria-controls="callout-5" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Hint 2
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-5" class="callout-5-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<p>The matched pairs are identified by the <code>subclass</code> column. Time is in years, so 3 years is <code>3</code>.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="webr-ojs-exercise exercise-solution d-none" data-exercise="ex_matched_cox">
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-6-contents" aria-controls="callout-6" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Solution
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-6" class="callout-6-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>cox_m <span class="ot">&lt;-</span> <span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated, <span class="at">data =</span> matched,</span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>               <span class="at">weights =</span> weights,</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>               <span class="at">robust =</span> <span class="cn">TRUE</span>, <span class="at">cluster =</span> subclass)</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(cox_m)<span class="sc">$</span>conf.int</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>km_m <span class="ot">&lt;-</span> <span class="fu">survfit</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated, <span class="at">data =</span> matched)</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(km_m, <span class="at">times =</span> <span class="dv">3</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Only <code>treated</code> goes in the model: matching has already balanced the confounders, so the model just compares the matched groups. (Adding the covariates as well is the “doubly robust” option in Exercise 7.1.) <code>cluster = subclass</code> tells R which patients form each matched pair. The HR is 0.68 (95% CI 0.57 to 0.81). 3-year survival is about 84% (95% CI 82% to 87%) with treatment and 75% (95% CI 72% to 79%) without.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="cell" data-layout-align="center" data-exercise="ex_matched_cox" data-check="true">
+<script type="exercise-check-ex_matched_cox-contents">
+eyJhdHRyIjp7ImNoZWNrIjp0cnVlLCJlZGl0Ijp0cnVlLCJldmFsIjp0cnVlLCJleGVyY2lzZSI6ImV4X21hdGNoZWRfY294In0sImNvZGUiOiJlbnYgPC0gLmVudmlyX3Jlc3VsdFxuY3ggPC0gZW52JGNveF9tXG5pZiAoIWluaGVyaXRzKGN4LCBcImNveHBoXCIpIHx8ICFpZGVudGljYWwoYXR0cih0ZXJtcyhjeCksIFwidGVybS5sYWJlbHNcIiksIFwidHJlYXRlZFwiKSkge1xuICBsaXN0KGNvcnJlY3QgPSBGQUxTRSwgbWVzc2FnZSA9IFwiVGhlIG1hdGNoZWQgQ294IG1vZGVsIHNob3VsZCBjb250YWluIGp1c3QgPGNvZGU+dHJlYXRlZDwvY29kZT46IG1hdGNoaW5nIGhhcyBhbHJlYWR5IGRlYWx0IHdpdGggdGhlIGNvbmZvdW5kZXJzLlwiKVxufSBlbHNlIGlmIChpcy5udWxsKGN4JG5haXZlLnZhcikpIHtcbiAgbGlzdChjb3JyZWN0ID0gRkFMU0UsIG1lc3NhZ2UgPSBcIlVzZSA8Y29kZT5yb2J1c3QgPSBUUlVFLCBjbHVzdGVyID0gc3ViY2xhc3M8L2NvZGU+LCBzbyB0aGUgc3RhbmRhcmQgZXJyb3JzIGFsbG93IGZvciB0aGUgbWF0Y2hlZCBwYWlycy5cIilcbn0gZWxzZSBpZiAoIWdyZXBsKFwiY2x1c3RlclxcXFxzKj1cXFxccypzdWJjbGFzc1wiLCAudXNlcl9jb2RlKSkge1xuICBsaXN0KGNvcnJlY3QgPSBGQUxTRSwgbWVzc2FnZSA9IFwiVGhlIHBhaXJzIGFyZSBpZGVudGlmaWVkIGJ5IHRoZSA8Y29kZT5zdWJjbGFzczwvY29kZT4gY29sdW1uOiA8Y29kZT5jbHVzdGVyID0gc3ViY2xhc3M8L2NvZGU+LlwiKVxufSBlbHNlIGlmICghaW5oZXJpdHMoLnJlc3VsdCwgXCJzdW1tYXJ5LnN1cnZmaXRcIikgfHwgIWFsbCgucmVzdWx0JHRpbWUgPT0gMykpIHtcbiAgbGlzdChjb3JyZWN0ID0gRkFMU0UsIG1lc3NhZ2UgPSBcIlRpbWUgaXMgaW4geWVhcnMsIHNvIDMteWVhciBzdXJ2aXZhbCBuZWVkcyA8Y29kZT50aW1lcyA9IDM8L2NvZGU+LlwiKVxufSBlbHNlIHtcbiAgbGlzdChjb3JyZWN0ID0gVFJVRSwgbWVzc2FnZSA9IFwiQ29ycmVjdCEgSFIgMC42OCAoOTUlIENJIDAuNTcgdG8gMC44MSkuIDMteWVhciBzdXJ2aXZhbCBpcyBhYm91dCA4NCUgd2l0aCB0cmVhdG1lbnQgYW5kIDc1JSB3aXRob3V0LlwiKVxufSJ9
+</script>
+</div>
+</section>
+</section>
+<section id="step-4-compare-the-approaches" class="level2" data-number="7.4">
+<h2 data-number="7.4" class="anchored" data-anchor-id="step-4-compare-the-approaches"><span class="header-section-number">7.4</span> Step 4: compare the approaches</h2>
+<p>How does the matched estimate compare with other ways of analysing the same data? We fit four Cox models:</p>
+<ul>
+<li><strong>Naive</strong>: treatment only, in the full cohort. No adjustment at all.</li>
+<li><strong>Covariate-adjusted</strong>: treatment plus all five confounders, in the full cohort (the Chapter 3 approach).</li>
+<li><strong>PS-matched</strong>: treatment only, in the matched cohort (Step 3).</li>
+<li><strong>PS-matched + covariates</strong>: matching <em>and</em> adjustment together. This is often called <strong>doubly robust</strong>, because it gives you two chances to get it right: if <em>either</em> the matching <em>or</em> the outcome model deals with the confounding well, the estimate should be close to the truth.</li>
+</ul>
+<div class="cell" data-layout-align="center">
+<details class="code-fold">
+<summary>Show the code that fits the four models and builds the table</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb11"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>fits <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Naive (unadjusted)"</span> <span class="ot">=</span></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>    <span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated, <span class="at">data =</span> cohort),</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>  <span class="st">"Covariate-adjusted Cox"</span> <span class="ot">=</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>    <span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated <span class="sc">+</span> age <span class="sc">+</span> female <span class="sc">+</span> diabetes <span class="sc">+</span> bmi <span class="sc">+</span> smoker,</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>          <span class="at">data =</span> cohort),</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>  <span class="st">"PS-matched Cox"</span> <span class="ot">=</span> cox_matched,</span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>  <span class="st">"PS-matched Cox + covariates"</span> <span class="ot">=</span></span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>    <span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated <span class="sc">+</span> age <span class="sc">+</span> female <span class="sc">+</span> diabetes <span class="sc">+</span> bmi <span class="sc">+</span> smoker,</span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>          <span class="at">data =</span> matched, <span class="at">weights =</span> weights, <span class="at">robust =</span> <span class="cn">TRUE</span>, <span class="at">cluster =</span> subclass)</span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>results <span class="ot">&lt;-</span> <span class="fu">bind_rows</span>(<span class="fu">lapply</span>(fits, \(f)</span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>  <span class="fu">tidy</span>(f, <span class="at">exponentiate =</span> <span class="cn">TRUE</span>, <span class="at">conf.int =</span> <span class="cn">TRUE</span>) <span class="sc">|&gt;</span> <span class="fu">filter</span>(term <span class="sc">==</span> <span class="st">"treated"</span>)),</span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>  <span class="at">.id =</span> <span class="st">"method"</span>) <span class="sc">|&gt;</span></span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(method, <span class="at">HR =</span> estimate, <span class="at">lower =</span> conf.low, <span class="at">upper =</span> conf.high, p.value) <span class="sc">|&gt;</span></span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">n =</span> <span class="fu">sapply</span>(fits, \(f) f<span class="sc">$</span>n), <span class="at">events =</span> <span class="fu">sapply</span>(fits, \(f) f<span class="sc">$</span>nevent))</span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a>results <span class="sc">|&gt;</span> <span class="fu">mutate</span>(<span class="fu">across</span>(HR<span class="sc">:</span>p.value, \(x) <span class="fu">signif</span>(x, <span class="dv">3</span>)))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt; # A tibble: 4 x 7
+#&gt;   method                         HR lower upper     p.value     n events
+#&gt;   &lt;chr&gt;                       &lt;dbl&gt; &lt;dbl&gt; &lt;dbl&gt;       &lt;dbl&gt; &lt;int&gt;  &lt;dbl&gt;
+#&gt; 1 Naive (unadjusted)          1.11  0.947 1.3   0.2          2000    629
+#&gt; 2 Covariate-adjusted Cox      0.662 0.558 0.787 0.00000266   2000    629
+#&gt; 3 PS-matched Cox              0.678 0.568 0.808 0.0000147    1428    485
+#&gt; 4 PS-matched Cox + covariates 0.619 0.515 0.744 0.000000301  1428    485</code></pre>
+</div>
+</div>
+<p>Each row gives the HR for treatment from one method, with its CI, p-value, and the number of patients and deaths used.</p>
+<div class="cell" data-layout-align="center">
+<details class="code-fold">
+<summary>Show the plotting code</summary>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb13"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a>results <span class="sc">|&gt;</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">mutate</span>(<span class="at">method =</span> <span class="fu">factor</span>(method, <span class="at">levels =</span> <span class="fu">rev</span>(method))) <span class="sc">|&gt;</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggplot</span>(<span class="fu">aes</span>(HR, method)) <span class="sc">+</span></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">xintercept =</span> <span class="dv">1</span>, <span class="at">colour =</span> <span class="st">"grey60"</span>) <span class="sc">+</span></span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">xintercept =</span> <span class="fl">0.70</span>, <span class="at">linetype =</span> <span class="st">"dashed"</span>, <span class="at">colour =</span> <span class="st">"#D55E00"</span>) <span class="sc">+</span></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_vline</span>(<span class="at">xintercept =</span> <span class="fl">0.73</span>, <span class="at">linetype =</span> <span class="st">"dotted"</span>, <span class="at">colour =</span> <span class="st">"#CC79A7"</span>, <span class="at">linewidth =</span> <span class="fl">0.8</span>) <span class="sc">+</span></span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_errorbar</span>(<span class="fu">aes</span>(<span class="at">xmin =</span> lower, <span class="at">xmax =</span> upper), <span class="at">width =</span> <span class="fl">0.15</span>, <span class="at">orientation =</span> <span class="st">"y"</span>) <span class="sc">+</span></span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a>  <span class="fu">geom_point</span>(<span class="at">size =</span> <span class="dv">3</span>, <span class="at">colour =</span> <span class="st">"#0072B2"</span>) <span class="sc">+</span></span>
+<span id="cb13-9"><a href="#cb13-9" aria-hidden="true" tabindex="-1"></a>  <span class="fu">annotate</span>(<span class="st">"text"</span>, <span class="at">x =</span> <span class="fl">0.70</span>, <span class="at">y =</span> <span class="fl">4.45</span>, <span class="at">label =</span> <span class="st">"conditional"</span>, <span class="at">colour =</span> <span class="st">"#D55E00"</span>, <span class="at">hjust =</span> <span class="fl">1.05</span>) <span class="sc">+</span></span>
+<span id="cb13-10"><a href="#cb13-10" aria-hidden="true" tabindex="-1"></a>  <span class="fu">annotate</span>(<span class="st">"text"</span>, <span class="at">x =</span> <span class="fl">0.73</span>, <span class="at">y =</span> <span class="fl">4.45</span>, <span class="at">label =</span> <span class="st">"marginal"</span>, <span class="at">colour =</span> <span class="st">"#CC79A7"</span>, <span class="at">hjust =</span> <span class="sc">-</span><span class="fl">0.05</span>) <span class="sc">+</span></span>
+<span id="cb13-11"><a href="#cb13-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">scale_x_log10</span>(<span class="at">breaks =</span> <span class="fu">c</span>(<span class="fl">0.5</span>, <span class="fl">0.6</span>, <span class="fl">0.7</span>, <span class="fl">0.8</span>, <span class="dv">1</span>, <span class="fl">1.2</span>)) <span class="sc">+</span></span>
+<span id="cb13-12"><a href="#cb13-12" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Hazard ratio for treatment (log scale)"</span>, <span class="at">y =</span> <span class="cn">NULL</span>) <span class="sc">+</span></span>
+<span id="cb13-13"><a href="#cb13-13" aria-hidden="true" tabindex="-1"></a>  <span class="fu">theme_minimal</span>(<span class="at">base_size =</span> <span class="dv">13</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</details>
+<div class="cell-output-display">
+<div id="fig-compare" class="quarto-float quarto-figure quarto-figure-center anchored" data-fig-align="center">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-compare-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="07-putting-it-together_files/figure-html/fig-compare-1.png" class="img-fluid quarto-figure quarto-figure-center figure-img" width="770">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-compare-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;7.2: Estimated treatment hazard ratios by method. The dashed line marks the true conditional HR (0.70), and the dotted line the true marginal HR in the treated (0.73).
+</figcaption>
+</figure>
+</div>
+</div>
+</div>
+<p>The naive analysis gets the <em>direction</em> wrong. Both covariate adjustment and PS matching come close to the truth. Notice, though, that there are <strong>two</strong> “truths” on the plot, because the methods answer slightly different questions:</p>
+<ul>
+<li>The covariate-adjusted Cox model estimates a <strong>conditional</strong> HR: the effect of treatment for patients with the <em>same</em> age, sex, diabetes, BMI and smoking status. Its true value is 0.70, the number we built into the data.</li>
+<li>The PS-matched Cox model, with only <code>treated</code>, estimates a <strong>marginal</strong> HR: the effect of treatment <em>on average</em>, across the kind of patients who were treated. Its true value here is about 0.73.</li>
+</ul>
+<p>Hazard ratios have an odd property: even with no confounding at all, the average effect over a mixed group of patients is a little closer to 1 than the effect for any particular kind of patient. (This is called <em>non-collapsibility</em>.) Neither number is wrong. They answer different questions, so say which one you estimated <span class="citation" data-cites="austin2013">(<a href="references.html#ref-austin2013" role="doc-biblioref">Austin 2014</a>)</span>. The matched estimate (0.68) is well within sampling error of its truth (0.73).</p>
+<p>Notice that the table shows only the HR for <strong>treatment</strong>. The covariate-adjusted models also give HRs for age, diabetes, BMI and so on, and it’s tempting to report and interpret those too. Don’t. Those variables are in the model to remove confounding of the <em>treatment</em> effect, and their own HRs don’t mean what they seem to. For example, in this cohort older patients are more likely to have diabetes, which is one of the ways age affects survival. The HR for age is adjusted for diabetes, so it leaves that pathway out: it isn’t “the effect of age”. Interpreting every HR in the model as an effect is known as the <strong>Table 2 fallacy</strong> <span class="citation" data-cites="westreich2013">(<a href="references.html#ref-westreich2013" role="doc-biblioref">Westreich and Greenland 2013</a>)</span>. The name comes from the usual layout of a paper: Table 1 describes the patients, and Table 2 reports the model, where every coefficient sits side by side as if they all meant the same thing. If you want the effect of another variable, it needs its own analysis, with its own confounders.</p>
+<div class="optional">
+<div class="callout callout-style-default callout-note no-icon callout-titled">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-7-contents" aria-controls="callout-7" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Going further (optional): where does 0.73 come from?
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-7" class="callout-7-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>The true marginal HR in the treated isn’t written into the simulation, so we work it out by brute force. Simulate a very large cohort, and give every <em>treated</em> patient two survival times: one with treatment and one without, using the same random number for both. Comparing the two sets of times gives the true average effect of treatment in the treated, with the same follow-up as in the real study:</p>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>big <span class="ot">&lt;-</span> <span class="fu">simulate_cohort</span>(<span class="at">n =</span> <span class="dv">200000</span>, <span class="at">seed =</span> <span class="dv">1</span>)</span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>tr  <span class="ot">&lt;-</span> big[big<span class="sc">$</span>treated <span class="sc">==</span> <span class="dv">1</span>, ]</span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a>n_t <span class="ot">&lt;-</span> <span class="fu">nrow</span>(tr)</span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Each treated patient's risk score, from the model in simulate_cohort()</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>lp <span class="ot">&lt;-</span> <span class="fu">with</span>(tr, <span class="fl">0.06</span> <span class="sc">*</span> (age <span class="sc">-</span> <span class="dv">65</span>) <span class="sc">+</span> <span class="fl">0.6</span> <span class="sc">*</span> diabetes <span class="sc">+</span> <span class="fl">0.03</span> <span class="sc">*</span> (bmi <span class="sc">-</span> <span class="dv">28</span>) <span class="sc">-</span></span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>               <span class="fl">0.25</span> <span class="sc">*</span> female <span class="sc">+</span> <span class="fl">0.55</span> <span class="sc">*</span> smoker)</span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a><span class="co"># Two survival times per patient: without and with treatment (HR 0.70)</span></span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1</span>)</span>
+<span id="cb14-11"><a href="#cb14-11" aria-hidden="true" tabindex="-1"></a>u <span class="ot">&lt;-</span> <span class="fu">runif</span>(n_t)</span>
+<span id="cb14-12"><a href="#cb14-12" aria-hidden="true" tabindex="-1"></a>t_untreated <span class="ot">&lt;-</span> (<span class="sc">-</span><span class="fu">log</span>(u) <span class="sc">/</span> (<span class="fl">0.05</span> <span class="sc">*</span> <span class="fu">exp</span>(lp)))<span class="sc">^</span>(<span class="dv">1</span> <span class="sc">/</span> <span class="fl">1.2</span>)</span>
+<span id="cb14-13"><a href="#cb14-13" aria-hidden="true" tabindex="-1"></a>t_treated   <span class="ot">&lt;-</span> (<span class="sc">-</span><span class="fu">log</span>(u) <span class="sc">/</span> (<span class="fl">0.05</span> <span class="sc">*</span> <span class="fu">exp</span>(lp <span class="sc">+</span> <span class="fu">log</span>(<span class="fl">0.70</span>))))<span class="sc">^</span>(<span class="dv">1</span> <span class="sc">/</span> <span class="fl">1.2</span>)</span>
+<span id="cb14-14"><a href="#cb14-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-15"><a href="#cb14-15" aria-hidden="true" tabindex="-1"></a><span class="co"># The same censoring as in the study</span></span>
+<span id="cb14-16"><a href="#cb14-16" aria-hidden="true" tabindex="-1"></a>t_cens <span class="ot">&lt;-</span> <span class="fu">pmin</span>(<span class="fu">runif</span>(n_t, <span class="dv">3</span>, <span class="dv">8</span>), <span class="fu">rexp</span>(n_t, <span class="at">rate =</span> <span class="fl">0.04</span>))</span>
+<span id="cb14-17"><a href="#cb14-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-18"><a href="#cb14-18" aria-hidden="true" tabindex="-1"></a>both <span class="ot">&lt;-</span> <span class="fu">data.frame</span>(</span>
+<span id="cb14-19"><a href="#cb14-19" aria-hidden="true" tabindex="-1"></a>  <span class="at">time   =</span> <span class="fu">c</span>(<span class="fu">pmin</span>(t_untreated, t_cens), <span class="fu">pmin</span>(t_treated, t_cens)),</span>
+<span id="cb14-20"><a href="#cb14-20" aria-hidden="true" tabindex="-1"></a>  <span class="at">status =</span> <span class="fu">c</span>(t_untreated <span class="sc">&lt;=</span> t_cens, t_treated <span class="sc">&lt;=</span> t_cens),</span>
+<span id="cb14-21"><a href="#cb14-21" aria-hidden="true" tabindex="-1"></a>  <span class="at">trt    =</span> <span class="fu">rep</span>(<span class="dv">0</span><span class="sc">:</span><span class="dv">1</span>, <span class="at">each =</span> n_t)</span>
+<span id="cb14-22"><a href="#cb14-22" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb14-23"><a href="#cb14-23" aria-hidden="true" tabindex="-1"></a><span class="fu">exp</span>(<span class="fu">coef</span>(<span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> trt, <span class="at">data =</span> both)))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt;       trt 
+#&gt; 0.7324347</code></pre>
+</div>
+</div>
+<p>The answer depends a little on how long patients are followed: with no censoring at all, it would be about 0.77.</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="sec-absolute" class="level2" data-number="7.5">
+<h2 data-number="7.5" class="anchored" data-anchor-id="sec-absolute"><span class="header-section-number">7.5</span> Step 5: absolute effects are easier to explain</h2>
+<p>HRs are relative. Clinicians and patients often find <strong>absolute</strong> survival differences easier to understand, e.g.&nbsp;“5-year survival was 69% with treatment and 61% without”. You can read these straight off the matched KM curves, using <code>summary()</code> as in Chapter 2:</p>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>km_m <span class="ot">&lt;-</span> <span class="fu">survfit</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated, <span class="at">data =</span> matched)</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>s5 <span class="ot">&lt;-</span> <span class="fu">summary</span>(km_m, <span class="at">times =</span> <span class="dv">5</span>)</span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="co"># The key numbers, one row per group</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a><span class="fu">data.frame</span>(<span class="at">group    =</span> s5<span class="sc">$</span>strata,</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>           <span class="at">survival =</span> <span class="fu">round</span>(s5<span class="sc">$</span>surv, <span class="dv">3</span>),</span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>           <span class="at">lower    =</span> <span class="fu">round</span>(s5<span class="sc">$</span>lower, <span class="dv">3</span>),</span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>           <span class="at">upper    =</span> <span class="fu">round</span>(s5<span class="sc">$</span>upper, <span class="dv">3</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt;       group survival lower upper
+#&gt; 1 treated=0    0.609 0.570  0.65
+#&gt; 2 treated=1    0.690 0.651  0.73</code></pre>
+</div>
+</div>
+<p><code>summary()</code> returns a list, and here we pick out the parts we need: the estimated 5-year survival in each group (<code>treated=0</code> and <code>treated=1</code>), with the lower and upper limits of its 95% CI. Printing <code>s5</code> itself shows the same numbers, plus the number at risk and the number of deaths.</p>
+<div class="optional">
+<div class="callout callout-style-default callout-note no-icon callout-titled">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-8-contents" aria-controls="callout-8" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Going further (optional): restricted mean survival time (RMST)
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-8" class="callout-8-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>The <strong>restricted mean survival time</strong> is the average event-free time up to a chosen horizon, e.g.&nbsp;“on average, treated patients lived 4.3 of the first 5 years”. It doesn’t rely on proportional hazards, so it is useful when that assumption fails:</p>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb18"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(km_m, <span class="at">rmean =</span> <span class="dv">5</span>)   <span class="co"># RMST up to 5 years, by group</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt; Call: survfit(formula = Surv(time, status) ~ treated, data = matched)
+#&gt; 
+#&gt;             n events rmean* se(rmean) median 0.95LCL 0.95UCL
+#&gt; treated=0 714    280   3.98    0.0590   6.42    5.77      NA
+#&gt; treated=1 714    205   4.30    0.0512     NA    7.64      NA
+#&gt;     * restricted mean with upper limit =  5</code></pre>
+</div>
+</div>
+<p>The <code>rmean</code> column is the RMST in each group.</p>
+<p><strong>For more</strong>, including how to compare two groups’ RMSTs with a confidence interval and how to choose the time horizon, see <a href="10-non-ph.html" class="quarto-xref"><span>Chapter 10</span></a>.</p>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="step-6-sensitivity-to-unmeasured-confounding" class="level2" data-number="7.6">
+<h2 data-number="7.6" class="anchored" data-anchor-id="step-6-sensitivity-to-unmeasured-confounding"><span class="header-section-number">7.6</span> Step 6: sensitivity to unmeasured confounding</h2>
+<p>Matching can’t fix confounders you didn’t measure (try the “Severity unmeasured” scenario in <a href="05-propensity-scores.html#sec-app-psm" class="quarto-xref"><span>Section 5.7</span></a> again). So always ask: <em>is there an important confounder we didn’t measure?</em> Discuss it honestly in the limitations.</p>
+<div class="optional">
+<div class="callout callout-style-default callout-note no-icon callout-titled">
+<div class="callout-header d-flex align-content-center collapsed" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="false" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Going further (optional): the E-value
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-9" class="callout-9-contents callout-collapse collapse">
+<div class="callout-body-container callout-body">
+<p>The <strong>E-value</strong> <span class="citation" data-cites="vanderweele2017">(<a href="references.html#ref-vanderweele2017" role="doc-biblioref">VanderWeele and Ding 2017</a>)</span> asks <em>how strong</em> an unmeasured confounder would need to be to explain away the result. The <code>EValue</code> package calculates it:</p>
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb20"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="co"># install.packages("EValue")</span></span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>EValue<span class="sc">::</span><span class="fu">evalues.HR</span>(<span class="at">est =</span> <span class="fl">0.68</span>, <span class="at">lo =</span> <span class="fl">0.57</span>, <span class="at">hi =</span> <span class="fl">0.81</span>, <span class="at">rare =</span> <span class="cn">FALSE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<section id="reporting-checklist" class="level2" data-number="7.7">
+<h2 data-number="7.7" class="anchored" data-anchor-id="reporting-checklist"><span class="header-section-number">7.7</span> Reporting checklist</h2>
+<p>When writing up a PS-matched survival analysis, report:</p>
+<ul class="task-list">
+<li><label><input type="checkbox">the covariates in the PS model, and why they were chosen (ideally with a DAG);</label></li>
+<li><label><input type="checkbox">the matching method, ratio, caliper, and with or without replacement;</label></li>
+<li><label><input type="checkbox">the <strong>number of treated patients discarded</strong>, and how the matched population differs from the full one;</label></li>
+<li><label><input type="checkbox">a balance table or Love plot, before and after matching (SMDs);</label></li>
+<li><label><input type="checkbox">KM curves with risk tables for the matched cohort;</label></li>
+<li><label><input type="checkbox">the HR with a robust CI, and a check of proportional hazards;</label></li>
+<li><label><input type="checkbox">an absolute measure (survival difference or RMST);</label></li>
+<li><label><input type="checkbox">a sensitivity analysis (e.g.&nbsp;E-value, different caliper, or IPTW: see <a href="09-weighting.html" class="quarto-xref"><span>Chapter 9</span></a>);</label></li>
+<li><label><input type="checkbox">how much data was missing, and how it was handled (<a href="11-missing-data.html" class="quarto-xref"><span>Chapter 11</span></a>).</label></li>
+</ul>
+<p>The STROBE guidelines for observational studies are a useful framework.</p>
+<section id="writing-it-up-an-example" class="level3" data-number="7.7.1">
+<h3 data-number="7.7.1" class="anchored" data-anchor-id="writing-it-up-an-example"><span class="header-section-number">7.7.1</span> Writing it up: an example</h3>
+<p>Here is how this chapter’s analysis might be written up. Adapt the bracketed details to your own study.</p>
+<blockquote class="blockquote">
+<p><strong>Methods.</strong> Propensity scores were estimated by logistic regression of treatment on age, sex, diabetes, BMI and smoking status. Each treated patient was matched to one untreated patient by nearest-neighbour matching without replacement on the logit of the propensity score, with a caliper of 0.2 standard deviations. Covariate balance was assessed with standardised mean differences (SMDs), with |SMD| &lt; 0.1 taken to indicate good balance. In the matched cohort, the effect of treatment on mortality was estimated with a Cox proportional hazards model, using robust standard errors clustered on matched pairs. Analyses used R with the survival, MatchIt and cobalt packages.</p>
+<p><strong>Results.</strong> Of 849 treated patients, 714 were matched to 714 untreated patients. 135 treated patients had no untreated patient within the caliper and were excluded. After matching, all SMDs were below 0.1 (the largest was 0.07, for age). There were 485 deaths in the matched cohort. Treatment was associated with a lower hazard of death (HR 0.68, 95% CI 0.57 to 0.81, p &lt; 0.001). Estimated 5-year survival was 69% (95% CI 65% to 73%) with treatment and 61% (95% CI 57% to 65%) without.</p>
+</blockquote>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb21" data-startfrom="560" data-source-offset="0"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 559;"><span id="cb21-560"><a href="#cb21-560" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> {quiz} <span class="im">from</span> <span class="st">"./js/survtools.js"</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+<div id="ojs-cell-2" data-nodetype="declaration">
+
+</div>
+</div>
+</div>
+</section>
+</section>
+<section id="quick-quiz" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="quick-quiz">Quick quiz</h2>
+<p>Choose an answer to each question. You’ll get instant feedback and can change your answer as often as you like.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb22" data-startfrom="569" data-source-offset="0"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 568;"><span id="cb22-569"><a href="#cb22-569" aria-hidden="true" tabindex="-1"></a><span class="fu">quiz</span>([</span>
+<span id="cb22-570"><a href="#cb22-570" aria-hidden="true" tabindex="-1"></a> {</span>
+<span id="cb22-571"><a href="#cb22-571" aria-hidden="true" tabindex="-1"></a>  <span class="st">"q"</span><span class="op">:</span> <span class="st">"Why do we use &lt;code&gt;robust = TRUE, cluster = subclass&lt;/code&gt; when fitting the Cox model to matched data?"</span><span class="op">,</span></span>
+<span id="cb22-572"><a href="#cb22-572" aria-hidden="true" tabindex="-1"></a>  <span class="st">"options"</span><span class="op">:</span> [</span>
+<span id="cb22-573"><a href="#cb22-573" aria-hidden="true" tabindex="-1"></a>   <span class="st">"To adjust for confounding"</span><span class="op">,</span></span>
+<span id="cb22-574"><a href="#cb22-574" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Because members of a matched pair are similar, so observations aren't independent and ordinary SEs are wrong"</span><span class="op">,</span></span>
+<span id="cb22-575"><a href="#cb22-575" aria-hidden="true" tabindex="-1"></a>   <span class="st">"To make the hazard ratio closer to 1"</span><span class="op">,</span></span>
+<span id="cb22-576"><a href="#cb22-576" aria-hidden="true" tabindex="-1"></a>   <span class="st">"It's needed for the model to converge"</span></span>
+<span id="cb22-577"><a href="#cb22-577" aria-hidden="true" tabindex="-1"></a>  ]<span class="op">,</span></span>
+<span id="cb22-578"><a href="#cb22-578" aria-hidden="true" tabindex="-1"></a>  <span class="st">"answer"</span><span class="op">:</span> <span class="dv">1</span><span class="op">,</span></span>
+<span id="cb22-579"><a href="#cb22-579" aria-hidden="true" tabindex="-1"></a>  <span class="st">"why"</span><span class="op">:</span> <span class="st">"The sandwich (robust) variance allows for correlation within matched pairs. It changes the standard error and CI, not the HR itself."</span><span class="op">,</span></span>
+<span id="cb22-580"><a href="#cb22-580" aria-hidden="true" tabindex="-1"></a>  <span class="st">"hints"</span><span class="op">:</span> [</span>
+<span id="cb22-581"><a href="#cb22-581" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Matching handles confounding. The cluster option only affects the standard errors."</span><span class="op">,</span></span>
+<span id="cb22-582"><a href="#cb22-582" aria-hidden="true" tabindex="-1"></a>   <span class="st">""</span><span class="op">,</span></span>
+<span id="cb22-583"><a href="#cb22-583" aria-hidden="true" tabindex="-1"></a>   <span class="st">"The point estimate is the same with or without it."</span><span class="op">,</span></span>
+<span id="cb22-584"><a href="#cb22-584" aria-hidden="true" tabindex="-1"></a>   <span class="st">"The model converges either way."</span></span>
+<span id="cb22-585"><a href="#cb22-585" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb22-586"><a href="#cb22-586" aria-hidden="true" tabindex="-1"></a> }<span class="op">,</span></span>
+<span id="cb22-587"><a href="#cb22-587" aria-hidden="true" tabindex="-1"></a> {</span>
+<span id="cb22-588"><a href="#cb22-588" aria-hidden="true" tabindex="-1"></a>  <span class="st">"q"</span><span class="op">:</span> <span class="st">"Why should you check covariate balance &lt;i&gt;before&lt;/i&gt; looking at the survival outcomes?"</span><span class="op">,</span></span>
+<span id="cb22-589"><a href="#cb22-589" aria-hidden="true" tabindex="-1"></a>  <span class="st">"options"</span><span class="op">:</span> [</span>
+<span id="cb22-590"><a href="#cb22-590" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Because the outcome data might be missing"</span><span class="op">,</span></span>
+<span id="cb22-591"><a href="#cb22-591" aria-hidden="true" tabindex="-1"></a>   <span class="st">"So that choices about the matching (caliper, covariates) can't be influenced, even unconsciously, by which result they give"</span><span class="op">,</span></span>
+<span id="cb22-592"><a href="#cb22-592" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Because balance can't be checked after the outcomes are known"</span><span class="op">,</span></span>
+<span id="cb22-593"><a href="#cb22-593" aria-hidden="true" tabindex="-1"></a>   <span class="st">"It doesn't matter when you check balance"</span></span>
+<span id="cb22-594"><a href="#cb22-594" aria-hidden="true" tabindex="-1"></a>  ]<span class="op">,</span></span>
+<span id="cb22-595"><a href="#cb22-595" aria-hidden="true" tabindex="-1"></a>  <span class="st">"answer"</span><span class="op">:</span> <span class="dv">1</span><span class="op">,</span></span>
+<span id="cb22-596"><a href="#cb22-596" aria-hidden="true" tabindex="-1"></a>  <span class="st">"why"</span><span class="op">:</span> <span class="st">"Settling the design first, without seeing outcomes, works like the blinding in a trial. It stops you from trying different matching options until you get the result you hoped for."</span><span class="op">,</span></span>
+<span id="cb22-597"><a href="#cb22-597" aria-hidden="true" tabindex="-1"></a>  <span class="st">"hints"</span><span class="op">:</span> [</span>
+<span id="cb22-598"><a href="#cb22-598" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Missing data is a separate issue."</span><span class="op">,</span></span>
+<span id="cb22-599"><a href="#cb22-599" aria-hidden="true" tabindex="-1"></a>   <span class="st">""</span><span class="op">,</span></span>
+<span id="cb22-600"><a href="#cb22-600" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Balance can be checked at any time. The point is about what you've seen when you make design choices."</span><span class="op">,</span></span>
+<span id="cb22-601"><a href="#cb22-601" aria-hidden="true" tabindex="-1"></a>   <span class="st">"If you try several matching options and look at the outcome each time, you can end up choosing the one with the 'best' result."</span></span>
+<span id="cb22-602"><a href="#cb22-602" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb22-603"><a href="#cb22-603" aria-hidden="true" tabindex="-1"></a> }<span class="op">,</span></span>
+<span id="cb22-604"><a href="#cb22-604" aria-hidden="true" tabindex="-1"></a> {</span>
+<span id="cb22-605"><a href="#cb22-605" aria-hidden="true" tabindex="-1"></a>  <span class="st">"q"</span><span class="op">:</span> <span class="st">"In the full cohort the naive HR was about 1.11, so treatment looked harmful. Why?"</span><span class="op">,</span></span>
+<span id="cb22-606"><a href="#cb22-606" aria-hidden="true" tabindex="-1"></a>  <span class="st">"options"</span><span class="op">:</span> [</span>
+<span id="cb22-607"><a href="#cb22-607" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Treatment really is harmful"</span><span class="op">,</span></span>
+<span id="cb22-608"><a href="#cb22-608" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Treated patients were older and more often diabetic or smokers, so they were at higher risk anyway (confounding by indication)"</span><span class="op">,</span></span>
+<span id="cb22-609"><a href="#cb22-609" aria-hidden="true" tabindex="-1"></a>   <span class="st">"There was too much censoring"</span><span class="op">,</span></span>
+<span id="cb22-610"><a href="#cb22-610" aria-hidden="true" tabindex="-1"></a>   <span class="st">"The proportional hazards assumption failed"</span></span>
+<span id="cb22-611"><a href="#cb22-611" aria-hidden="true" tabindex="-1"></a>  ]<span class="op">,</span></span>
+<span id="cb22-612"><a href="#cb22-612" aria-hidden="true" tabindex="-1"></a>  <span class="st">"answer"</span><span class="op">:</span> <span class="dv">1</span><span class="op">,</span></span>
+<span id="cb22-613"><a href="#cb22-613" aria-hidden="true" tabindex="-1"></a>  <span class="st">"why"</span><span class="op">:</span> <span class="st">"The simulation gave treatment to higher-risk patients. Compared crudely, their extra baseline risk hides the benefit of treatment."</span><span class="op">,</span></span>
+<span id="cb22-614"><a href="#cb22-614" aria-hidden="true" tabindex="-1"></a>  <span class="st">"hints"</span><span class="op">:</span> [</span>
+<span id="cb22-615"><a href="#cb22-615" aria-hidden="true" tabindex="-1"></a>   <span class="st">"We built the data with a true HR of 0.70, so treatment is beneficial."</span><span class="op">,</span></span>
+<span id="cb22-616"><a href="#cb22-616" aria-hidden="true" tabindex="-1"></a>   <span class="st">""</span><span class="op">,</span></span>
+<span id="cb22-617"><a href="#cb22-617" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Non-informative censoring doesn't bias KM or Cox estimates."</span><span class="op">,</span></span>
+<span id="cb22-618"><a href="#cb22-618" aria-hidden="true" tabindex="-1"></a>   <span class="st">"PH holds in these data. The problem is confounding."</span></span>
+<span id="cb22-619"><a href="#cb22-619" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb22-620"><a href="#cb22-620" aria-hidden="true" tabindex="-1"></a> }<span class="op">,</span></span>
+<span id="cb22-621"><a href="#cb22-621" aria-hidden="true" tabindex="-1"></a> {</span>
+<span id="cb22-622"><a href="#cb22-622" aria-hidden="true" tabindex="-1"></a>  <span class="st">"q"</span><span class="op">:</span> <span class="st">"Which of these is an &lt;i&gt;absolute&lt;/i&gt; effect measure to report alongside the HR?"</span><span class="op">,</span></span>
+<span id="cb22-623"><a href="#cb22-623" aria-hidden="true" tabindex="-1"></a>  <span class="st">"options"</span><span class="op">:</span> [</span>
+<span id="cb22-624"><a href="#cb22-624" aria-hidden="true" tabindex="-1"></a>   <span class="st">"The hazard ratio's p-value"</span><span class="op">,</span></span>
+<span id="cb22-625"><a href="#cb22-625" aria-hidden="true" tabindex="-1"></a>   <span class="st">"The difference in 5-year survival between matched groups (or the RMST difference)"</span><span class="op">,</span></span>
+<span id="cb22-626"><a href="#cb22-626" aria-hidden="true" tabindex="-1"></a>   <span class="st">"The concordance index"</span><span class="op">,</span></span>
+<span id="cb22-627"><a href="#cb22-627" aria-hidden="true" tabindex="-1"></a>   <span class="st">"The standardised mean difference"</span></span>
+<span id="cb22-628"><a href="#cb22-628" aria-hidden="true" tabindex="-1"></a>  ]<span class="op">,</span></span>
+<span id="cb22-629"><a href="#cb22-629" aria-hidden="true" tabindex="-1"></a>  <span class="st">"answer"</span><span class="op">:</span> <span class="dv">1</span><span class="op">,</span></span>
+<span id="cb22-630"><a href="#cb22-630" aria-hidden="true" tabindex="-1"></a>  <span class="st">"why"</span><span class="op">:</span> <span class="st">"Survival differences at fixed times and RMST differences are on the scale of patients and time, which is easier to interpret than a ratio of rates."</span><span class="op">,</span></span>
+<span id="cb22-631"><a href="#cb22-631" aria-hidden="true" tabindex="-1"></a>  <span class="st">"hints"</span><span class="op">:</span> [</span>
+<span id="cb22-632"><a href="#cb22-632" aria-hidden="true" tabindex="-1"></a>   <span class="st">"A p-value is not an effect measure."</span><span class="op">,</span></span>
+<span id="cb22-633"><a href="#cb22-633" aria-hidden="true" tabindex="-1"></a>   <span class="st">""</span><span class="op">,</span></span>
+<span id="cb22-634"><a href="#cb22-634" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Concordance measures how well a model discriminates, not a treatment effect."</span><span class="op">,</span></span>
+<span id="cb22-635"><a href="#cb22-635" aria-hidden="true" tabindex="-1"></a>   <span class="st">"SMDs describe covariate balance, not outcomes."</span></span>
+<span id="cb22-636"><a href="#cb22-636" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb22-637"><a href="#cb22-637" aria-hidden="true" tabindex="-1"></a> }</span>
+<span id="cb22-638"><a href="#cb22-638" aria-hidden="true" tabindex="-1"></a>])</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+<div id="ojs-cell-3" data-nodetype="expression">
+
+</div>
+</div>
+</div>
+</section>
+<section id="exercise" class="level2" data-number="7.8">
+<h2 data-number="7.8" class="anchored" data-anchor-id="exercise"><span class="header-section-number">7.8</span> Exercise</h2>
+<section id="exercise-7.1" class="level3" data-number="7.8.1">
+<h3 data-number="7.8.1" class="anchored" data-anchor-id="exercise-7.1"><span class="header-section-number">7.8.1</span> Exercise 7.1</h3>
+<p>A new cohort, <code>null_cohort</code>, is loaded in each box. It was made with <code>simulate_cohort(n = 5000, hr_treat = 1, seed = 1)</code>, so the <strong>true effect is null</strong> (HR = 1). The exercise has three parts, each checked separately. The first run downloads some packages and matches 5000 patients, so it may take a little while.</p>
+<section id="part-1-naive-and-matched-analyses" class="level4 unnumbered">
+<h4 class="unnumbered anchored" data-anchor-id="part-1-naive-and-matched-analyses">Part 1: naive and matched analyses</h4>
+<p>Fit the naive Cox model. Then match the patients, and fit the matched Cox model (make that the last line). What do the two analyses conclude?</p>
+<div class="cell" data-layout-align="center" data-setup="true" data-exercise="ex_null_match">
+<script type="exercise-setup-ex_null_match-contents">
+eyJhdHRyIjp7ImVkaXQiOnRydWUsImV2YWwiOnRydWUsImV4ZXJjaXNlIjoiZXhfbnVsbF9tYXRjaCIsInNldHVwIjp0cnVlfSwiY29kZSI6ImZvciAocGtnIGluIGMoXCJNYXRjaEl0XCIsIFwiY29iYWx0XCIsIFwiZ2dzdXJ2Zml0XCIpKSB7XG4gIGlmICghcmVxdWlyZU5hbWVzcGFjZShwa2csIHF1aWV0bHkgPSBUUlVFKSkgaW5zdGFsbC5wYWNrYWdlcyhwa2csIHF1aWV0ID0gVFJVRSlcbn1cbmxpYnJhcnkoTWF0Y2hJdClcbmxpYnJhcnkoY29iYWx0KVxubGlicmFyeShzdXJ2aXZhbClcbmxpYnJhcnkoZ2dzdXJ2Zml0KVxuc2ltdWxhdGVfY29ob3J0IDwtIGZ1bmN0aW9uKG4gPSAyMDAwLCBocl90cmVhdCA9IDAuNzAsIHNlZWQgPSAyMDI2KSB7XG4gIHNldC5zZWVkKHNlZWQpXG4gIGFnZSAgICAgIDwtIHJvdW5kKHBtaW4ocG1heChybm9ybShuLCA2NSwgMTApLCAzNSksIDk1KSlcbiAgZmVtYWxlICAgPC0gcmJpbm9tKG4sIDEsIDAuNDUpXG4gIGRpYWJldGVzIDwtIHJiaW5vbShuLCAxLCBwbG9naXMoLTEuNCArIDAuMDQgKiAoYWdlIC0gNjUpKSlcbiAgYm1pICAgICAgPC0gcm91bmQocm5vcm0obiwgMjgsIDQuNSksIDEpXG4gIHNtb2tlciAgIDwtIHJiaW5vbShuLCAxLCAwLjI1KVxuICBscF90cmVhdCA8LSAtMC42ICsgMC4wNiAqIChhZ2UgLSA2NSkgKyAxLjAgKiBkaWFiZXRlcyArIDAuMDggKiAoYm1pIC0gMjgpIC1cbiAgICAwLjMgKiBmZW1hbGUgKyAwLjQgKiBzbW9rZXJcbiAgdHJlYXRlZCA8LSByYmlub20obiwgMSwgcGxvZ2lzKGxwX3RyZWF0KSlcbiAgbHBfZGVhdGggPC0gbG9nKGhyX3RyZWF0KSAqIHRyZWF0ZWQgKyAwLjA2ICogKGFnZSAtIDY1KSArIDAuNiAqIGRpYWJldGVzICtcbiAgICAwLjAzICogKGJtaSAtIDI4KSAtIDAuMjUgKiBmZW1hbGUgKyAwLjU1ICogc21va2VyXG4gIHNoYXBlICA8LSAxLjJcbiAgbGFtYmRhIDwtIDAuMDUgICAgICAgICAgICAgICAgICAgICAgICMgYmFzZWxpbmUgaGF6YXJkIHNjYWxlIChwZXIgeWVhcilcbiAgdF9ldmVudCA8LSAoLWxvZyhydW5pZihuKSkgLyAobGFtYmRhICogZXhwKGxwX2RlYXRoKSkpXigxIC8gc2hhcGUpXG4gIHRfYWRtaW4gICA8LSBydW5pZihuLCAzLCA4KSAgICAgICAgICAjIHN0dWR5IGVuZHMgMy04IHllYXJzIGFmdGVyIGVudHJ5XG4gIHRfZHJvcG91dCA8LSByZXhwKG4sIHJhdGUgPSAwLjA0KVxuICB0X2NlbnMgICAgPC0gcG1pbih0X2FkbWluLCB0X2Ryb3BvdXQpXG4gIHRpbWUgICA8LSBwbWluKHRfZXZlbnQsIHRfY2VucylcbiAgc3RhdHVzIDwtIGFzLmludGVnZXIodF9ldmVudCA8PSB0X2NlbnMpXG4gIGRhdGEuZnJhbWUoXG4gICAgaWQgICAgICAgPSBzZXFfbGVuKG4pLFxuICAgIGFnZSwgZmVtYWxlLCBkaWFiZXRlcywgYm1pLCBzbW9rZXIsXG4gICAgdHJlYXRlZCxcbiAgICB0aW1lICAgICA9IHJvdW5kKHRpbWUsIDMpLFxuICAgIHN0YXR1c1xuICApXG59XG5udWxsX2NvaG9ydCA8LSBzaW11bGF0ZV9jb2hvcnQobiA9IDUwMDAsIGhyX3RyZWF0ID0gMSwgc2VlZCA9IDEpIn0=
+</script>
+</div>
+<div class="cell" data-layout-align="center" data-exercise="ex_null_match" data-caption="Exercise 7.1, part 1: naive vs matched">
+<div>
+<div id="webr-5" class="exercise-cell">
+
+</div>
+<script type="webr-5-contents">
+eyJhdHRyIjp7ImNhcHRpb24iOiJFeGVyY2lzZSA3LjEsIHBhcnQgMTogbmFpdmUgdnMgbWF0Y2hlZCIsImVkaXQiOnRydWUsImV2YWwiOnRydWUsImV4ZXJjaXNlIjoiZXhfbnVsbF9tYXRjaCJ9LCJjb2RlIjoiIyBOYWl2ZSBDb3ggbW9kZWxcbmNveHBoKFN1cnYodGltZSwgc3RhdHVzKSB+IHRyZWF0ZWQsIGRhdGEgPSBudWxsX2NvaG9ydClcblxuIyBNYXRjaCwgdGhlbiBmaXQgdGhlIG1hdGNoZWQgQ294IG1vZGVsXG5tX251bGwgPC0gbWF0Y2hpdCh0cmVhdGVkIH4gYWdlICsgZmVtYWxlICsgZGlhYmV0ZXMgKyBibWkgKyBzbW9rZXIsXG4gICAgICAgICAgICAgICAgICBkYXRhID0gbnVsbF9jb2hvcnQsIGxpbmsgPSBcImxpbmVhci5sb2dpdFwiLCBjYWxpcGVyID0gX19fX19fKVxubWRfbnVsbCA8LSBfX19fX18obV9udWxsKVxuY294cGgoU3Vydih0aW1lLCBzdGF0dXMpIH4gdHJlYXRlZCwgZGF0YSA9IG1kX251bGwsXG4gICAgICByb2J1c3QgPSBUUlVFLCBjbHVzdGVyID0gX19fX19fKSJ9
+</script>
+</div>
+</div>
+<div class="hint webr-ojs-exercise exercise-hint d-none" data-exercise="ex_null_match">
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-10-contents" aria-controls="callout-10" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Hint 1
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-10" class="callout-10-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<p>Use the same caliper as before (0.2), and extract the matched data with <code>match.data()</code>.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="hint webr-ojs-exercise exercise-hint d-none" data-exercise="ex_null_match">
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-11-contents" aria-controls="callout-11" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Hint 2
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-11" class="callout-11-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<p>The matched pairs are identified by <code>subclass</code>.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="webr-ojs-exercise exercise-solution d-none" data-exercise="ex_null_match">
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-12-contents" aria-controls="callout-12" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Solution
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-12" class="callout-12-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb23"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated, <span class="at">data =</span> null_cohort)</span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>m_null <span class="ot">&lt;-</span> <span class="fu">matchit</span>(treated <span class="sc">~</span> age <span class="sc">+</span> female <span class="sc">+</span> diabetes <span class="sc">+</span> bmi <span class="sc">+</span> smoker,</span>
+<span id="cb23-3"><a href="#cb23-3" aria-hidden="true" tabindex="-1"></a>                  <span class="at">data =</span> null_cohort, <span class="at">link =</span> <span class="st">"linear.logit"</span>, <span class="at">caliper =</span> <span class="fl">0.2</span>)</span>
+<span id="cb23-4"><a href="#cb23-4" aria-hidden="true" tabindex="-1"></a>md_null <span class="ot">&lt;-</span> <span class="fu">match.data</span>(m_null)</span>
+<span id="cb23-5"><a href="#cb23-5" aria-hidden="true" tabindex="-1"></a><span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated, <span class="at">data =</span> md_null,</span>
+<span id="cb23-6"><a href="#cb23-6" aria-hidden="true" tabindex="-1"></a>      <span class="at">robust =</span> <span class="cn">TRUE</span>, <span class="at">cluster =</span> subclass)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>The <strong>naive</strong> analysis is badly wrong: HR ≈ 1.86. A treatment that does nothing looks like it nearly doubles the hazard of death. <strong>Matching</strong> removes most of that bias, bringing the HR down to about 1.21. But it doesn’t get all the way to 1: the CI (1.09–1.34) still excludes the null. Parts 2 and 3 look at why.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="cell" data-layout-align="center" data-exercise="ex_null_match" data-check="true">
+<script type="exercise-check-ex_null_match-contents">
+eyJhdHRyIjp7ImNoZWNrIjp0cnVlLCJlZGl0Ijp0cnVlLCJldmFsIjp0cnVlLCJleGVyY2lzZSI6ImV4X251bGxfbWF0Y2gifSwiY29kZSI6InIgPC0gLnJlc3VsdFxuaWYgKCFpbmhlcml0cyhyLCBcImNveHBoXCIpIHx8ICFpZGVudGljYWwoYXR0cih0ZXJtcyhyKSwgXCJ0ZXJtLmxhYmVsc1wiKSwgXCJ0cmVhdGVkXCIpKSB7XG4gIGxpc3QoY29ycmVjdCA9IEZBTFNFLCBtZXNzYWdlID0gXCJNYWtlIHRoZSBsYXN0IGxpbmUgdGhlIG1hdGNoZWQgQ294IG1vZGVsIHdpdGgganVzdCA8Y29kZT50cmVhdGVkPC9jb2RlPi5cIilcbn0gZWxzZSBpZiAociRuID4gNDAwMCkge1xuICBsaXN0KGNvcnJlY3QgPSBGQUxTRSwgbWVzc2FnZSA9IFwiRml0IHRoZSBtb2RlbCB0byB0aGUgPGI+bWF0Y2hlZDwvYj4gZGF0YSwgPGNvZGU+bWRfbnVsbDwvY29kZT4uXCIpXG59IGVsc2UgaWYgKGlzLm51bGwociRuYWl2ZS52YXIpKSB7XG4gIGxpc3QoY29ycmVjdCA9IEZBTFNFLCBtZXNzYWdlID0gXCJBZGQgPGNvZGU+cm9idXN0ID0gVFJVRSwgY2x1c3RlciA9IHN1YmNsYXNzPC9jb2RlPi5cIilcbn0gZWxzZSB7XG4gIGxpc3QoY29ycmVjdCA9IFRSVUUsIG1lc3NhZ2UgPSBzcHJpbnRmKFwiQ29ycmVjdCEgTmFpdmUgSFIg4omIIDEuODYsIG1hdGNoZWQgSFIgPSAlLjJmLiBNYXRjaGluZyByZW1vdmVkIG1vc3Qgb2YgdGhlIGJpYXMsIGJ1dCBub3QgYWxsIG9mIGl0LCBzaW5jZSB0aGUgdHJ1dGggaXMgMS5cIiwgZXhwKGNvZWYocilbW1widHJlYXRlZFwiXV0pKSlcbn0ifQ==
+</script>
+</div>
+</section>
+<section id="part-2-balance-and-km-curves" class="level4 unnumbered">
+<h4 class="unnumbered anchored" data-anchor-id="part-2-balance-and-km-curves">Part 2: balance and KM curves</h4>
+<p>The matched data, <code>md_null</code>, are ready in this box. Draw matched KM curves, then check balance (make the balance table the last line). Are any covariates still slightly imbalanced?</p>
+<div class="cell" data-layout-align="center" data-setup="true" data-exercise="ex_null_balance">
+<script type="exercise-setup-ex_null_balance-contents">
+eyJhdHRyIjp7ImVkaXQiOnRydWUsImV2YWwiOnRydWUsImV4ZXJjaXNlIjoiZXhfbnVsbF9iYWxhbmNlIiwic2V0dXAiOnRydWV9LCJjb2RlIjoiZm9yIChwa2cgaW4gYyhcIk1hdGNoSXRcIiwgXCJjb2JhbHRcIiwgXCJnZ3N1cnZmaXRcIikpIHtcbiAgaWYgKCFyZXF1aXJlTmFtZXNwYWNlKHBrZywgcXVpZXRseSA9IFRSVUUpKSBpbnN0YWxsLnBhY2thZ2VzKHBrZywgcXVpZXQgPSBUUlVFKVxufVxubGlicmFyeShNYXRjaEl0KVxubGlicmFyeShjb2JhbHQpXG5saWJyYXJ5KHN1cnZpdmFsKVxubGlicmFyeShnZ3N1cnZmaXQpXG5zaW11bGF0ZV9jb2hvcnQgPC0gZnVuY3Rpb24obiA9IDIwMDAsIGhyX3RyZWF0ID0gMC43MCwgc2VlZCA9IDIwMjYpIHtcbiAgc2V0LnNlZWQoc2VlZClcbiAgYWdlICAgICAgPC0gcm91bmQocG1pbihwbWF4KHJub3JtKG4sIDY1LCAxMCksIDM1KSwgOTUpKVxuICBmZW1hbGUgICA8LSByYmlub20obiwgMSwgMC40NSlcbiAgZGlhYmV0ZXMgPC0gcmJpbm9tKG4sIDEsIHBsb2dpcygtMS40ICsgMC4wNCAqIChhZ2UgLSA2NSkpKVxuICBibWkgICAgICA8LSByb3VuZChybm9ybShuLCAyOCwgNC41KSwgMSlcbiAgc21va2VyICAgPC0gcmJpbm9tKG4sIDEsIDAuMjUpXG4gIGxwX3RyZWF0IDwtIC0wLjYgKyAwLjA2ICogKGFnZSAtIDY1KSArIDEuMCAqIGRpYWJldGVzICsgMC4wOCAqIChibWkgLSAyOCkgLVxuICAgIDAuMyAqIGZlbWFsZSArIDAuNCAqIHNtb2tlclxuICB0cmVhdGVkIDwtIHJiaW5vbShuLCAxLCBwbG9naXMobHBfdHJlYXQpKVxuICBscF9kZWF0aCA8LSBsb2coaHJfdHJlYXQpICogdHJlYXRlZCArIDAuMDYgKiAoYWdlIC0gNjUpICsgMC42ICogZGlhYmV0ZXMgK1xuICAgIDAuMDMgKiAoYm1pIC0gMjgpIC0gMC4yNSAqIGZlbWFsZSArIDAuNTUgKiBzbW9rZXJcbiAgc2hhcGUgIDwtIDEuMlxuICBsYW1iZGEgPC0gMC4wNSAgICAgICAgICAgICAgICAgICAgICAgIyBiYXNlbGluZSBoYXphcmQgc2NhbGUgKHBlciB5ZWFyKVxuICB0X2V2ZW50IDwtICgtbG9nKHJ1bmlmKG4pKSAvIChsYW1iZGEgKiBleHAobHBfZGVhdGgpKSleKDEgLyBzaGFwZSlcbiAgdF9hZG1pbiAgIDwtIHJ1bmlmKG4sIDMsIDgpICAgICAgICAgICMgc3R1ZHkgZW5kcyAzLTggeWVhcnMgYWZ0ZXIgZW50cnlcbiAgdF9kcm9wb3V0IDwtIHJleHAobiwgcmF0ZSA9IDAuMDQpXG4gIHRfY2VucyAgICA8LSBwbWluKHRfYWRtaW4sIHRfZHJvcG91dClcbiAgdGltZSAgIDwtIHBtaW4odF9ldmVudCwgdF9jZW5zKVxuICBzdGF0dXMgPC0gYXMuaW50ZWdlcih0X2V2ZW50IDw9IHRfY2VucylcbiAgZGF0YS5mcmFtZShcbiAgICBpZCAgICAgICA9IHNlcV9sZW4obiksXG4gICAgYWdlLCBmZW1hbGUsIGRpYWJldGVzLCBibWksIHNtb2tlcixcbiAgICB0cmVhdGVkLFxuICAgIHRpbWUgICAgID0gcm91bmQodGltZSwgMyksXG4gICAgc3RhdHVzXG4gIClcbn1cbm51bGxfY29ob3J0IDwtIHNpbXVsYXRlX2NvaG9ydChuID0gNTAwMCwgaHJfdHJlYXQgPSAxLCBzZWVkID0gMSlcbm1fbnVsbCA8LSBtYXRjaGl0KHRyZWF0ZWQgfiBhZ2UgKyBmZW1hbGUgKyBkaWFiZXRlcyArIGJtaSArIHNtb2tlcixcbiAgICAgICAgICAgICAgICAgIGRhdGEgPSBudWxsX2NvaG9ydCwgbGluayA9IFwibGluZWFyLmxvZ2l0XCIsIGNhbGlwZXIgPSAwLjIpXG5tZF9udWxsIDwtIG1hdGNoLmRhdGEobV9udWxsKSJ9
+</script>
+</div>
+<div class="cell" data-layout-align="center" data-exercise="ex_null_balance" data-caption="Exercise 7.1, part 2: balance">
+<div>
+<div id="webr-8" class="exercise-cell">
+
+</div>
+<script type="webr-8-contents">
+eyJhdHRyIjp7ImNhcHRpb24iOiJFeGVyY2lzZSA3LjEsIHBhcnQgMjogYmFsYW5jZSIsImVkaXQiOnRydWUsImV2YWwiOnRydWUsImV4ZXJjaXNlIjoiZXhfbnVsbF9iYWxhbmNlIiwiZmlnLWhlaWdodCI6NX0sImNvZGUiOiIjIE1hdGNoZWQgS00gY3VydmVzXG5zdXJ2Zml0MihTdXJ2KHRpbWUsIHN0YXR1cykgfiB0cmVhdGVkLCBkYXRhID0gbWRfbnVsbCkgfD5cbiAgZ2dzdXJ2Zml0KCkgK1xuICBhZGRfcmlza3RhYmxlKCkgK1xuICBsYWJzKHggPSBcIlllYXJzXCIpXG5cbiMgQmFsYW5jZSBhZnRlciBtYXRjaGluZ1xuYmFsLnRhYihtX251bGwsIGJpbmFyeSA9IFwic3RkXCIsIHRocmVzaG9sZHMgPSBjKG0gPSBfX19fX18pKSJ9
+</script>
+</div>
+</div>
+<div class="hint webr-ojs-exercise exercise-hint d-none" data-exercise="ex_null_balance">
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-13-contents" aria-controls="callout-13" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Hint 1
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-13" class="callout-13-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<p>The usual threshold for |SMD| is 0.1.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="webr-ojs-exercise exercise-solution d-none" data-exercise="ex_null_balance">
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-14-contents" aria-controls="callout-14" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Solution
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-14" class="callout-14-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="fu">survfit2</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated, <span class="at">data =</span> md_null) <span class="sc">|&gt;</span></span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>  <span class="fu">ggsurvfit</span>() <span class="sc">+</span></span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">add_risktable</span>() <span class="sc">+</span></span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">labs</span>(<span class="at">x =</span> <span class="st">"Years"</span>)</span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a><span class="fu">bal.tab</span>(m_null, <span class="at">binary =</span> <span class="st">"std"</span>, <span class="at">thresholds =</span> <span class="fu">c</span>(<span class="at">m =</span> <span class="fl">0.1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>All the SMDs are below 0.1, so by the usual rule of thumb the matching “passed”. But small imbalances remain (age ≈ 0.06, diabetes ≈ 0.07). These are strong predictors of death, so even small imbalances leave some <strong>residual confounding</strong>. Chance plays a part too: a fully adjusted Cox model on the whole cohort also gives about 1.09.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="cell" data-layout-align="center" data-exercise="ex_null_balance" data-check="true">
+<script type="exercise-check-ex_null_balance-contents">
+eyJhdHRyIjp7ImNoZWNrIjp0cnVlLCJlZGl0Ijp0cnVlLCJldmFsIjp0cnVlLCJleGVyY2lzZSI6ImV4X251bGxfYmFsYW5jZSJ9LCJjb2RlIjoiaWYgKCFpbmhlcml0cygucmVzdWx0LCBcImJhbC50YWJcIikpIHtcbiAgbGlzdChjb3JyZWN0ID0gRkFMU0UsIG1lc3NhZ2UgPSBcIk1ha2UgdGhlIGxhc3QgbGluZSB0aGUgYmFsYW5jZSB0YWJsZTogPGNvZGU+YmFsLnRhYihtX251bGwsIC4uLik8L2NvZGU+LlwiKVxufSBlbHNlIGlmICghZ3JlcGwoXCJjXFxcXChcXFxccyptXFxcXHMqPVxcXFxzKjA/XFxcXC4xXFxcXHMqXFxcXClcIiwgLnVzZXJfY29kZSkpIHtcbiAgbGlzdChjb3JyZWN0ID0gRkFMU0UsIG1lc3NhZ2UgPSBcIlVzZSB0aGUgdXN1YWwgdGhyZXNob2xkOiA8Y29kZT50aHJlc2hvbGRzID0gYyhtID0gMC4xKTwvY29kZT4uXCIpXG59IGVsc2Uge1xuICBsaXN0KGNvcnJlY3QgPSBUUlVFLCBtZXNzYWdlID0gXCJDb3JyZWN0ISBFdmVyeSB8U01EfCBpcyBiZWxvdyAwLjEsIGJ1dCBhZ2UgKDAuMDYpIGFuZCBkaWFiZXRlcyAoMC4wNykgYXJlIHN0aWxsIHNsaWdodGx5IGltYmFsYW5jZWQuIEJvdGggc3Ryb25nbHkgcHJlZGljdCBkZWF0aC5cIilcbn0ifQ==
+</script>
+</div>
+</section>
+<section id="part-3-doubly-robust" class="level4 unnumbered">
+<h4 class="unnumbered anchored" data-anchor-id="part-3-doubly-robust">Part 3: doubly robust</h4>
+<p>Refit the matched Cox model with the five covariates added (“doubly robust”). What changes?</p>
+<div class="cell" data-layout-align="center" data-setup="true" data-exercise="ex_null_dr">
+<script type="exercise-setup-ex_null_dr-contents">
+eyJhdHRyIjp7ImVkaXQiOnRydWUsImV2YWwiOnRydWUsImV4ZXJjaXNlIjoiZXhfbnVsbF9kciIsInNldHVwIjp0cnVlfSwiY29kZSI6ImZvciAocGtnIGluIGMoXCJNYXRjaEl0XCIsIFwiY29iYWx0XCIsIFwiZ2dzdXJ2Zml0XCIpKSB7XG4gIGlmICghcmVxdWlyZU5hbWVzcGFjZShwa2csIHF1aWV0bHkgPSBUUlVFKSkgaW5zdGFsbC5wYWNrYWdlcyhwa2csIHF1aWV0ID0gVFJVRSlcbn1cbmxpYnJhcnkoTWF0Y2hJdClcbmxpYnJhcnkoY29iYWx0KVxubGlicmFyeShzdXJ2aXZhbClcbmxpYnJhcnkoZ2dzdXJ2Zml0KVxuc2ltdWxhdGVfY29ob3J0IDwtIGZ1bmN0aW9uKG4gPSAyMDAwLCBocl90cmVhdCA9IDAuNzAsIHNlZWQgPSAyMDI2KSB7XG4gIHNldC5zZWVkKHNlZWQpXG4gIGFnZSAgICAgIDwtIHJvdW5kKHBtaW4ocG1heChybm9ybShuLCA2NSwgMTApLCAzNSksIDk1KSlcbiAgZmVtYWxlICAgPC0gcmJpbm9tKG4sIDEsIDAuNDUpXG4gIGRpYWJldGVzIDwtIHJiaW5vbShuLCAxLCBwbG9naXMoLTEuNCArIDAuMDQgKiAoYWdlIC0gNjUpKSlcbiAgYm1pICAgICAgPC0gcm91bmQocm5vcm0obiwgMjgsIDQuNSksIDEpXG4gIHNtb2tlciAgIDwtIHJiaW5vbShuLCAxLCAwLjI1KVxuICBscF90cmVhdCA8LSAtMC42ICsgMC4wNiAqIChhZ2UgLSA2NSkgKyAxLjAgKiBkaWFiZXRlcyArIDAuMDggKiAoYm1pIC0gMjgpIC1cbiAgICAwLjMgKiBmZW1hbGUgKyAwLjQgKiBzbW9rZXJcbiAgdHJlYXRlZCA8LSByYmlub20obiwgMSwgcGxvZ2lzKGxwX3RyZWF0KSlcbiAgbHBfZGVhdGggPC0gbG9nKGhyX3RyZWF0KSAqIHRyZWF0ZWQgKyAwLjA2ICogKGFnZSAtIDY1KSArIDAuNiAqIGRpYWJldGVzICtcbiAgICAwLjAzICogKGJtaSAtIDI4KSAtIDAuMjUgKiBmZW1hbGUgKyAwLjU1ICogc21va2VyXG4gIHNoYXBlICA8LSAxLjJcbiAgbGFtYmRhIDwtIDAuMDUgICAgICAgICAgICAgICAgICAgICAgICMgYmFzZWxpbmUgaGF6YXJkIHNjYWxlIChwZXIgeWVhcilcbiAgdF9ldmVudCA8LSAoLWxvZyhydW5pZihuKSkgLyAobGFtYmRhICogZXhwKGxwX2RlYXRoKSkpXigxIC8gc2hhcGUpXG4gIHRfYWRtaW4gICA8LSBydW5pZihuLCAzLCA4KSAgICAgICAgICAjIHN0dWR5IGVuZHMgMy04IHllYXJzIGFmdGVyIGVudHJ5XG4gIHRfZHJvcG91dCA8LSByZXhwKG4sIHJhdGUgPSAwLjA0KVxuICB0X2NlbnMgICAgPC0gcG1pbih0X2FkbWluLCB0X2Ryb3BvdXQpXG4gIHRpbWUgICA8LSBwbWluKHRfZXZlbnQsIHRfY2VucylcbiAgc3RhdHVzIDwtIGFzLmludGVnZXIodF9ldmVudCA8PSB0X2NlbnMpXG4gIGRhdGEuZnJhbWUoXG4gICAgaWQgICAgICAgPSBzZXFfbGVuKG4pLFxuICAgIGFnZSwgZmVtYWxlLCBkaWFiZXRlcywgYm1pLCBzbW9rZXIsXG4gICAgdHJlYXRlZCxcbiAgICB0aW1lICAgICA9IHJvdW5kKHRpbWUsIDMpLFxuICAgIHN0YXR1c1xuICApXG59XG5udWxsX2NvaG9ydCA8LSBzaW11bGF0ZV9jb2hvcnQobiA9IDUwMDAsIGhyX3RyZWF0ID0gMSwgc2VlZCA9IDEpXG5tX251bGwgPC0gbWF0Y2hpdCh0cmVhdGVkIH4gYWdlICsgZmVtYWxlICsgZGlhYmV0ZXMgKyBibWkgKyBzbW9rZXIsXG4gICAgICAgICAgICAgICAgICBkYXRhID0gbnVsbF9jb2hvcnQsIGxpbmsgPSBcImxpbmVhci5sb2dpdFwiLCBjYWxpcGVyID0gMC4yKVxubWRfbnVsbCA8LSBtYXRjaC5kYXRhKG1fbnVsbCkifQ==
+</script>
+</div>
+<div class="cell" data-layout-align="center" data-exercise="ex_null_dr" data-caption="Exercise 7.1, part 3: doubly robust">
+<div>
+<div id="webr-11" class="exercise-cell">
+
+</div>
+<script type="webr-11-contents">
+eyJhdHRyIjp7ImNhcHRpb24iOiJFeGVyY2lzZSA3LjEsIHBhcnQgMzogZG91Ymx5IHJvYnVzdCIsImVkaXQiOnRydWUsImV2YWwiOnRydWUsImV4ZXJjaXNlIjoiZXhfbnVsbF9kciJ9LCJjb2RlIjoiY294cGgoU3Vydih0aW1lLCBzdGF0dXMpIH4gdHJlYXRlZCArIF9fX19fXyxcbiAgICAgIGRhdGEgPSBtZF9udWxsLCByb2J1c3QgPSBUUlVFLCBjbHVzdGVyID0gc3ViY2xhc3MpIn0=
+</script>
+</div>
+</div>
+<div class="hint webr-ojs-exercise exercise-hint d-none" data-exercise="ex_null_dr">
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-15-contents" aria-controls="callout-15" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Hint 1
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-15" class="callout-15-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<p>Add <code>age + female + diabetes + bmi + smoker</code> after <code>treated</code>.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="webr-ojs-exercise exercise-solution d-none" data-exercise="ex_null_dr">
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-16-contents" aria-controls="callout-16" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Solution
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-16" class="callout-16-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb25"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb25-1"><a href="#cb25-1" aria-hidden="true" tabindex="-1"></a><span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated <span class="sc">+</span> age <span class="sc">+</span> female <span class="sc">+</span> diabetes <span class="sc">+</span> bmi <span class="sc">+</span> smoker,</span>
+<span id="cb25-2"><a href="#cb25-2" aria-hidden="true" tabindex="-1"></a>      <span class="at">data =</span> md_null, <span class="at">robust =</span> <span class="cn">TRUE</span>, <span class="at">cluster =</span> subclass)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>Adding the covariates mops up much of the remaining confounding: HR ≈ 1.12, CI 1.00–1.25. Combining matching with adjustment like this is called <em>doubly robust</em> estimation: the matching and the outcome model each get a chance to deal with the confounding, so what one misses, the other can catch.</p>
+<p>The lesson: matching <strong>reduces</strong> confounding but rarely eliminates it. For strong prognostic variables, aim for SMDs well below 0.1, and consider covariate adjustment in the matched sample as well.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="cell" data-layout-align="center" data-exercise="ex_null_dr" data-check="true">
+<script type="exercise-check-ex_null_dr-contents">
+eyJhdHRyIjp7ImNoZWNrIjp0cnVlLCJlZGl0Ijp0cnVlLCJldmFsIjp0cnVlLCJleGVyY2lzZSI6ImV4X251bGxfZHIifSwiY29kZSI6InIgPC0gLnJlc3VsdFxuaWYgKCFpbmhlcml0cyhyLCBcImNveHBoXCIpIHx8XG4gICAgIWFsbChjKFwidHJlYXRlZFwiLCBcImFnZVwiLCBcImZlbWFsZVwiLCBcImRpYWJldGVzXCIsIFwiYm1pXCIsIFwic21va2VyXCIpICVpbiUgYXR0cih0ZXJtcyhyKSwgXCJ0ZXJtLmxhYmVsc1wiKSkpIHtcbiAgbGlzdChjb3JyZWN0ID0gRkFMU0UsIG1lc3NhZ2UgPSBcIkFkZCBhbGwgZml2ZSBjb3ZhcmlhdGVzOiA8Y29kZT50cmVhdGVkICsgYWdlICsgZmVtYWxlICsgZGlhYmV0ZXMgKyBibWkgKyBzbW9rZXI8L2NvZGU+LlwiKVxufSBlbHNlIHtcbiAgbGlzdChjb3JyZWN0ID0gVFJVRSwgbWVzc2FnZSA9IHNwcmludGYoXCJDb3JyZWN0ISBEb3VibHkgcm9idXN0IEhSID0gJS4yZjogY2xvc2VyIHRvIHRoZSB0cnVlIHZhbHVlIG9mIDEgdGhhbiBtYXRjaGluZyBhbG9uZSAoYWJvdXQgMS4yMSkuXCIsIGV4cChjb2VmKHIpW1tcInRyZWF0ZWRcIl1dKSkpXG59In0=
+</script>
+</div>
+</section>
+</section>
+</section>
+<section id="summary" class="level2" data-number="7.9">
+<h2 data-number="7.9" class="anchored" data-anchor-id="summary"><span class="header-section-number">7.9</span> Summary</h2>
+<div class="callout callout-style-default callout-important no-icon callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Key points
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li><strong>Design first, outcomes second</strong>: settle the matching and check balance before looking at survival.</li>
+<li>In the matched sample, fit a Cox model with <strong>treatment only</strong>, using the matching weights and a <strong>robust (cluster) standard error</strong> for the matched pairs.</li>
+<li>Here, matching turned a misleading naive HR of 1.11 into 0.68, close to the true marginal HR of 0.73. Full covariate adjustment gave an answer close to the true conditional HR of 0.70. The two truths differ because the methods answer slightly different questions.</li>
+<li>Report <strong>absolute</strong> effects too, such as survival at 5 years, which are easier to explain than HRs.</li>
+<li>Matching reduces confounding but rarely removes it completely, and it can’t fix unmeasured confounders. Say so in the limitations.</li>
+</ul>
+</div>
+</div>
+<p><strong>Answering the question.</strong> Yes. In the matched cohort the hazard ratio was 0.68 (95% CI 0.57 to 0.81), about a 32% lower hazard of death with treatment. Estimated 5-year survival was 69% with treatment and 61% without.</p>
+</section>
+<section id="further-reading" class="level2" data-number="7.10">
+<h2 data-number="7.10" class="anchored" data-anchor-id="further-reading"><span class="header-section-number">7.10</span> Further reading</h2>
+<p>All of these are free to read online unless marked otherwise. The whole book’s reading list, grouped by topic, is in <a href="a3-further-reading.html" class="quarto-xref"><span>Appendix C</span></a>.</p>
+<ul>
+<li><span class="citation" data-cites="austin2013">Austin (<a href="references.html#ref-austin2013" role="doc-biblioref">2014</a>)</span>: How to estimate and report treatment effects from propensity score analyses with survival outcomes, including matched Kaplan–Meier curves and marginal hazard ratios.</li>
+<li><span class="citation" data-cites="strobe2007">Elm et al. (<a href="references.html#ref-strobe2007" role="doc-biblioref">2007</a>)</span>: The STROBE reporting guideline for observational studies. Use its checklist when you write up an analysis like this one.</li>
+<li><span class="citation" data-cites="royston2013">Royston and Parmar (<a href="references.html#ref-royston2013" role="doc-biblioref">2013</a>)</span>: <em>More advanced.</em> The restricted mean survival time, for when hazard ratios aren’t constant over time.</li>
+<li><span class="citation" data-cites="hernan2020">Hernán and Robins (<a href="references.html#ref-hernan2020" role="doc-biblioref">2020</a>)</span>: <em>Advanced.</em> A free book on causal inference from observational data, for going deeper into confounding and how to design an observational analysis.</li>
+</ul>
+
+
+<script type="webr-data">
+eyJvcHRpb25zIjp7ImJhc2VVcmwiOiJodHRwczovL3dlYnIuci13YXNtLm9yZy92MC42LjAvIn0sInBhY2thZ2VzIjp7InBrZ3MiOlsiZXZhbHVhdGUiLCJrbml0ciIsImh0bWx0b29scyIsInN1cnZpdmFsIl0sInJlcG9zIjpbImh0dHBzOi8vcmVwby5yLXdhc20ub3JnIiwiaHR0cHM6Ly9jcmFuLnItdW5pdmVyc2UuZGV2Il19LCJyZW5kZXJfZGYiOiJkZWZhdWx0In0=
+</script>
+<script type="ojs-module-contents">
+eyJjb250ZW50cyI6W3siY2VsbE5hbWUiOiJ3ZWJyLXdpZGdldC0xMSIsImlubGluZSI6ZmFsc2UsIm1ldGhvZE5hbWUiOiJpbnRlcnByZXRRdWlldCIsInNvdXJjZSI6IntcbiAgLy8gV2FpdCBmb3Igb3V0cHV0IHRvIGJlIHdyaXR0ZW4gdG8gdGhlIERPTSwgdGhlbiB0cmlnZ2VyIHdpZGdldCByZW5kZXJpbmdcbiAgYXdhaXQgX3dlYnJfdmFsdWVfMTE7XG4gIGlmICh3aW5kb3cuSFRNTFdpZGdldHMpIHtcbiAgICB3aW5kb3cuSFRNTFdpZGdldHMuc3RhdGljUmVuZGVyKCk7XG4gIH1cbiAgaWYgKHdpbmRvdy5QYWdlZFRhYmxlRG9jKSB7XG4gICAgd2luZG93LlBhZ2VkVGFibGVEb2MuaW5pdEFsbCgpO1xuICB9XG59XG4ifSx7ImNlbGxOYW1lIjoid2Vici0xMSIsImlubGluZSI6ZmFsc2UsIm1ldGhvZE5hbWUiOiJpbnRlcnByZXQiLCJzb3VyY2UiOiJ2aWV3b2YgX3dlYnJfZWRpdG9yXzExID0ge1xuICBjb25zdCB7IFdlYlJFeGVyY2lzZUVkaXRvciwgYjY0RGVjb2RlIH0gPSB3aW5kb3cuX2V4ZXJjaXNlX29qc19ydW50aW1lO1xuICBjb25zdCBzY3JpcHRDb250ZW50ID0gZG9jdW1lbnQucXVlcnlTZWxlY3Rvcihgc2NyaXB0W3R5cGU9XFxcIndlYnItMTEtY29udGVudHNcXFwiXWApLnRleHRDb250ZW50O1xuICBjb25zdCBibG9jayA9IEpTT04ucGFyc2UoYjY0RGVjb2RlKHNjcmlwdENvbnRlbnQpKTtcblxuICAvLyBEZWZhdWx0IGV4ZXJjaXNlIGNvbmZpZ3VyYXRpb25cbiAgY29uc3Qgb3B0aW9ucyA9IE9iamVjdC5hc3NpZ24oXG4gICAge1xuICAgICAgaWQ6IFwid2Vici0xMS1jb250ZW50c1wiLFxuICAgICAgZW52aXI6IGBleGVyY2lzZS1lbnYtJHtibG9jay5hdHRyLmV4ZXJjaXNlfWAsXG4gICAgICBlcnJvcjogZmFsc2UsXG4gICAgICBjYXB0aW9uOiAnRXhlcmNpc2UnLFxuICAgIH0sXG4gICAgYmxvY2suYXR0clxuICApO1xuXG4gIGNvbnN0IGVkaXRvciA9IG5ldyBXZWJSRXhlcmNpc2VFZGl0b3Iod2ViUk9qcy53ZWJSUHJvbWlzZSwgYmxvY2suY29kZSwgb3B0aW9ucyk7XG4gIHJldHVybiBlZGl0b3IuY29udGFpbmVyO1xufVxudmlld29mIF93ZWJyX3ZhbHVlXzExID0gd2ViUk9qcy5wcm9jZXNzKF93ZWJyX2VkaXRvcl8xMSwge30pO1xuX3dlYnJfZmVlZGJhY2tfMTEgPSB7XG4gIGNvbnN0IHsgV2ViUkdyYWRlciB9ID0gd2luZG93Ll9leGVyY2lzZV9vanNfcnVudGltZTtcbiAgY29uc3QgZW1wdHlGZWVkYmFjayA9IGRvY3VtZW50LmNyZWF0ZUVsZW1lbnQoJ2RpdicpO1xuXG4gIGNvbnN0IGdyYWRlciA9IG5ldyBXZWJSR3JhZGVyKF93ZWJyX3ZhbHVlXzExLmV2YWx1YXRvcik7XG4gIGNvbnN0IGZlZWRiYWNrID0gYXdhaXQgZ3JhZGVyLmdyYWRlRXhlcmNpc2UoKTtcbiAgaWYgKCFmZWVkYmFjaykgcmV0dXJuIGVtcHR5RmVlZGJhY2s7XG4gIHJldHVybiBmZWVkYmFjaztcbn1cbiJ9LHsiY2VsbE5hbWUiOiJ3ZWJyLXdpZGdldC04IiwiaW5saW5lIjpmYWxzZSwibWV0aG9kTmFtZSI6ImludGVycHJldFF1aWV0Iiwic291cmNlIjoie1xuICAvLyBXYWl0IGZvciBvdXRwdXQgdG8gYmUgd3JpdHRlbiB0byB0aGUgRE9NLCB0aGVuIHRyaWdnZXIgd2lkZ2V0IHJlbmRlcmluZ1xuICBhd2FpdCBfd2Vicl92YWx1ZV84O1xuICBpZiAod2luZG93LkhUTUxXaWRnZXRzKSB7XG4gICAgd2luZG93LkhUTUxXaWRnZXRzLnN0YXRpY1JlbmRlcigpO1xuICB9XG4gIGlmICh3aW5kb3cuUGFnZWRUYWJsZURvYykge1xuICAgIHdpbmRvdy5QYWdlZFRhYmxlRG9jLmluaXRBbGwoKTtcbiAgfVxufVxuIn0seyJjZWxsTmFtZSI6IndlYnItOCIsImlubGluZSI6ZmFsc2UsIm1ldGhvZE5hbWUiOiJpbnRlcnByZXQiLCJzb3VyY2UiOiJ2aWV3b2YgX3dlYnJfZWRpdG9yXzggPSB7XG4gIGNvbnN0IHsgV2ViUkV4ZXJjaXNlRWRpdG9yLCBiNjREZWNvZGUgfSA9IHdpbmRvdy5fZXhlcmNpc2Vfb2pzX3J1bnRpbWU7XG4gIGNvbnN0IHNjcmlwdENvbnRlbnQgPSBkb2N1bWVudC5xdWVyeVNlbGVjdG9yKGBzY3JpcHRbdHlwZT1cXFwid2Vici04LWNvbnRlbnRzXFxcIl1gKS50ZXh0Q29udGVudDtcbiAgY29uc3QgYmxvY2sgPSBKU09OLnBhcnNlKGI2NERlY29kZShzY3JpcHRDb250ZW50KSk7XG5cbiAgLy8gRGVmYXVsdCBleGVyY2lzZSBjb25maWd1cmF0aW9uXG4gIGNvbnN0IG9wdGlvbnMgPSBPYmplY3QuYXNzaWduKFxuICAgIHtcbiAgICAgIGlkOiBcIndlYnItOC1jb250ZW50c1wiLFxuICAgICAgZW52aXI6IGBleGVyY2lzZS1lbnYtJHtibG9jay5hdHRyLmV4ZXJjaXNlfWAsXG4gICAgICBlcnJvcjogZmFsc2UsXG4gICAgICBjYXB0aW9uOiAnRXhlcmNpc2UnLFxuICAgIH0sXG4gICAgYmxvY2suYXR0clxuICApO1xuXG4gIGNvbnN0IGVkaXRvciA9IG5ldyBXZWJSRXhlcmNpc2VFZGl0b3Iod2ViUk9qcy53ZWJSUHJvbWlzZSwgYmxvY2suY29kZSwgb3B0aW9ucyk7XG4gIHJldHVybiBlZGl0b3IuY29udGFpbmVyO1xufVxudmlld29mIF93ZWJyX3ZhbHVlXzggPSB3ZWJST2pzLnByb2Nlc3MoX3dlYnJfZWRpdG9yXzgsIHt9KTtcbl93ZWJyX2ZlZWRiYWNrXzggPSB7XG4gIGNvbnN0IHsgV2ViUkdyYWRlciB9ID0gd2luZG93Ll9leGVyY2lzZV9vanNfcnVudGltZTtcbiAgY29uc3QgZW1wdHlGZWVkYmFjayA9IGRvY3VtZW50LmNyZWF0ZUVsZW1lbnQoJ2RpdicpO1xuXG4gIGNvbnN0IGdyYWRlciA9IG5ldyBXZWJSR3JhZGVyKF93ZWJyX3ZhbHVlXzguZXZhbHVhdG9yKTtcbiAgY29uc3QgZmVlZGJhY2sgPSBhd2FpdCBncmFkZXIuZ3JhZGVFeGVyY2lzZSgpO1xuICBpZiAoIWZlZWRiYWNrKSByZXR1cm4gZW1wdHlGZWVkYmFjaztcbiAgcmV0dXJuIGZlZWRiYWNrO1xufVxuIn0seyJjZWxsTmFtZSI6IndlYnItd2lkZ2V0LTUiLCJpbmxpbmUiOmZhbHNlLCJtZXRob2ROYW1lIjoiaW50ZXJwcmV0UXVpZXQiLCJzb3VyY2UiOiJ7XG4gIC8vIFdhaXQgZm9yIG91dHB1dCB0byBiZSB3cml0dGVuIHRvIHRoZSBET00sIHRoZW4gdHJpZ2dlciB3aWRnZXQgcmVuZGVyaW5nXG4gIGF3YWl0IF93ZWJyX3ZhbHVlXzU7XG4gIGlmICh3aW5kb3cuSFRNTFdpZGdldHMpIHtcbiAgICB3aW5kb3cuSFRNTFdpZGdldHMuc3RhdGljUmVuZGVyKCk7XG4gIH1cbiAgaWYgKHdpbmRvdy5QYWdlZFRhYmxlRG9jKSB7XG4gICAgd2luZG93LlBhZ2VkVGFibGVEb2MuaW5pdEFsbCgpO1xuICB9XG59XG4ifSx7ImNlbGxOYW1lIjoid2Vici01IiwiaW5saW5lIjpmYWxzZSwibWV0aG9kTmFtZSI6ImludGVycHJldCIsInNvdXJjZSI6InZpZXdvZiBfd2Vicl9lZGl0b3JfNSA9IHtcbiAgY29uc3QgeyBXZWJSRXhlcmNpc2VFZGl0b3IsIGI2NERlY29kZSB9ID0gd2luZG93Ll9leGVyY2lzZV9vanNfcnVudGltZTtcbiAgY29uc3Qgc2NyaXB0Q29udGVudCA9IGRvY3VtZW50LnF1ZXJ5U2VsZWN0b3IoYHNjcmlwdFt0eXBlPVxcXCJ3ZWJyLTUtY29udGVudHNcXFwiXWApLnRleHRDb250ZW50O1xuICBjb25zdCBibG9jayA9IEpTT04ucGFyc2UoYjY0RGVjb2RlKHNjcmlwdENvbnRlbnQpKTtcblxuICAvLyBEZWZhdWx0IGV4ZXJjaXNlIGNvbmZpZ3VyYXRpb25cbiAgY29uc3Qgb3B0aW9ucyA9IE9iamVjdC5hc3NpZ24oXG4gICAge1xuICAgICAgaWQ6IFwid2Vici01LWNvbnRlbnRzXCIsXG4gICAgICBlbnZpcjogYGV4ZXJjaXNlLWVudi0ke2Jsb2NrLmF0dHIuZXhlcmNpc2V9YCxcbiAgICAgIGVycm9yOiBmYWxzZSxcbiAgICAgIGNhcHRpb246ICdFeGVyY2lzZScsXG4gICAgfSxcbiAgICBibG9jay5hdHRyXG4gICk7XG5cbiAgY29uc3QgZWRpdG9yID0gbmV3IFdlYlJFeGVyY2lzZUVkaXRvcih3ZWJST2pzLndlYlJQcm9taXNlLCBibG9jay5jb2RlLCBvcHRpb25zKTtcbiAgcmV0dXJuIGVkaXRvci5jb250YWluZXI7XG59XG52aWV3b2YgX3dlYnJfdmFsdWVfNSA9IHdlYlJPanMucHJvY2Vzcyhfd2Vicl9lZGl0b3JfNSwge30pO1xuX3dlYnJfZmVlZGJhY2tfNSA9IHtcbiAgY29uc3QgeyBXZWJSR3JhZGVyIH0gPSB3aW5kb3cuX2V4ZXJjaXNlX29qc19ydW50aW1lO1xuICBjb25zdCBlbXB0eUZlZWRiYWNrID0gZG9jdW1lbnQuY3JlYXRlRWxlbWVudCgnZGl2Jyk7XG5cbiAgY29uc3QgZ3JhZGVyID0gbmV3IFdlYlJHcmFkZXIoX3dlYnJfdmFsdWVfNS5ldmFsdWF0b3IpO1xuICBjb25zdCBmZWVkYmFjayA9IGF3YWl0IGdyYWRlci5ncmFkZUV4ZXJjaXNlKCk7XG4gIGlmICghZmVlZGJhY2spIHJldHVybiBlbXB0eUZlZWRiYWNrO1xuICByZXR1cm4gZmVlZGJhY2s7XG59XG4ifSx7ImNlbGxOYW1lIjoid2Vici13aWRnZXQtMiIsImlubGluZSI6ZmFsc2UsIm1ldGhvZE5hbWUiOiJpbnRlcnByZXRRdWlldCIsInNvdXJjZSI6IntcbiAgLy8gV2FpdCBmb3Igb3V0cHV0IHRvIGJlIHdyaXR0ZW4gdG8gdGhlIERPTSwgdGhlbiB0cmlnZ2VyIHdpZGdldCByZW5kZXJpbmdcbiAgYXdhaXQgX3dlYnJfdmFsdWVfMjtcbiAgaWYgKHdpbmRvdy5IVE1MV2lkZ2V0cykge1xuICAgIHdpbmRvdy5IVE1MV2lkZ2V0cy5zdGF0aWNSZW5kZXIoKTtcbiAgfVxuICBpZiAod2luZG93LlBhZ2VkVGFibGVEb2MpIHtcbiAgICB3aW5kb3cuUGFnZWRUYWJsZURvYy5pbml0QWxsKCk7XG4gIH1cbn1cbiJ9LHsiY2VsbE5hbWUiOiJ3ZWJyLTIiLCJpbmxpbmUiOmZhbHNlLCJtZXRob2ROYW1lIjoiaW50ZXJwcmV0Iiwic291cmNlIjoidmlld29mIF93ZWJyX2VkaXRvcl8yID0ge1xuICBjb25zdCB7IFdlYlJFeGVyY2lzZUVkaXRvciwgYjY0RGVjb2RlIH0gPSB3aW5kb3cuX2V4ZXJjaXNlX29qc19ydW50aW1lO1xuICBjb25zdCBzY3JpcHRDb250ZW50ID0gZG9jdW1lbnQucXVlcnlTZWxlY3Rvcihgc2NyaXB0W3R5cGU9XFxcIndlYnItMi1jb250ZW50c1xcXCJdYCkudGV4dENvbnRlbnQ7XG4gIGNvbnN0IGJsb2NrID0gSlNPTi5wYXJzZShiNjREZWNvZGUoc2NyaXB0Q29udGVudCkpO1xuXG4gIC8vIERlZmF1bHQgZXhlcmNpc2UgY29uZmlndXJhdGlvblxuICBjb25zdCBvcHRpb25zID0gT2JqZWN0LmFzc2lnbihcbiAgICB7XG4gICAgICBpZDogXCJ3ZWJyLTItY29udGVudHNcIixcbiAgICAgIGVudmlyOiBgZXhlcmNpc2UtZW52LSR7YmxvY2suYXR0ci5leGVyY2lzZX1gLFxuICAgICAgZXJyb3I6IGZhbHNlLFxuICAgICAgY2FwdGlvbjogJ0V4ZXJjaXNlJyxcbiAgICB9LFxuICAgIGJsb2NrLmF0dHJcbiAgKTtcblxuICBjb25zdCBlZGl0b3IgPSBuZXcgV2ViUkV4ZXJjaXNlRWRpdG9yKHdlYlJPanMud2ViUlByb21pc2UsIGJsb2NrLmNvZGUsIG9wdGlvbnMpO1xuICByZXR1cm4gZWRpdG9yLmNvbnRhaW5lcjtcbn1cbnZpZXdvZiBfd2Vicl92YWx1ZV8yID0gd2ViUk9qcy5wcm9jZXNzKF93ZWJyX2VkaXRvcl8yLCB7fSk7XG5fd2Vicl9mZWVkYmFja18yID0ge1xuICBjb25zdCB7IFdlYlJHcmFkZXIgfSA9IHdpbmRvdy5fZXhlcmNpc2Vfb2pzX3J1bnRpbWU7XG4gIGNvbnN0IGVtcHR5RmVlZGJhY2sgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KCdkaXYnKTtcblxuICBjb25zdCBncmFkZXIgPSBuZXcgV2ViUkdyYWRlcihfd2Vicl92YWx1ZV8yLmV2YWx1YXRvcik7XG4gIGNvbnN0IGZlZWRiYWNrID0gYXdhaXQgZ3JhZGVyLmdyYWRlRXhlcmNpc2UoKTtcbiAgaWYgKCFmZWVkYmFjaykgcmV0dXJuIGVtcHR5RmVlZGJhY2s7XG4gIHJldHVybiBmZWVkYmFjaztcbn1cbiJ9LHsiY2VsbE5hbWUiOiJ3ZWJyLXByZWx1ZGUiLCJpbmxpbmUiOmZhbHNlLCJtZXRob2ROYW1lIjoiaW50ZXJwcmV0UXVpZXQiLCJzb3VyY2UiOiJ3ZWJST2pzID0ge1xuICBjb25zdCB7IFdlYlIsIENoYW5uZWxUeXBlIH0gPSB3aW5kb3cuX2V4ZXJjaXNlX29qc19ydW50aW1lLldlYlI7XG4gIGNvbnN0IHtcbiAgICBXZWJSRXZhbHVhdG9yLFxuICAgIFdlYlJFbnZpcm9ubWVudE1hbmFnZXIsXG4gICAgc2V0dXBSLFxuICAgIGI2NERlY29kZSxcbiAgICBjb2xsYXBzZVBhdGhcbiAgfSA9IHdpbmRvdy5fZXhlcmNpc2Vfb2pzX3J1bnRpbWU7XG5cbiAgY29uc3Qgc3RhdHVzQ29udGFpbmVyID0gZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoXCJleGVyY2lzZS1sb2FkaW5nLXN0YXR1c1wiKTtcbiAgY29uc3QgaW5kaWNhdG9yQ29udGFpbmVyID0gZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoXCJleGVyY2lzZS1sb2FkaW5nLWluZGljYXRvclwiKTtcbiAgaW5kaWNhdG9yQ29udGFpbmVyLmNsYXNzTGlzdC5yZW1vdmUoXCJkLW5vbmVcIik7XG5cbiAgbGV0IHN0YXR1c1RleHQgPSBkb2N1bWVudC5jcmVhdGVFbGVtZW50KFwiZGl2XCIpXG4gIHN0YXR1c1RleHQuY2xhc3NMaXN0ID0gXCJleGVyY2lzZS1sb2FkaW5nLWRldGFpbHNcIjtcbiAgc3RhdHVzVGV4dCA9IHN0YXR1c0NvbnRhaW5lci5hcHBlbmRDaGlsZChzdGF0dXNUZXh0KTtcbiAgc3RhdHVzVGV4dC50ZXh0Q29udGVudCA9IGBJbml0aWFsaXNlYDtcblxuICAvLyBIb2lzdCBpbmRpY2F0b3Igb3V0IGZyb20gZmluYWwgc2xpZGUgd2hlbiBydW5uaW5nIHVuZGVyIHJldmVhbFxuICBjb25zdCByZXZlYWxTdGF0dXMgPSBkb2N1bWVudC5xdWVyeVNlbGVjdG9yKFwiLnJldmVhbCAuZXhlcmNpc2UtbG9hZGluZy1pbmRpY2F0b3JcIik7XG4gIGlmIChyZXZlYWxTdGF0dXMpIHtcbiAgICByZXZlYWxTdGF0dXMucmVtb3ZlKCk7XG4gICAgZG9jdW1lbnQucXVlcnlTZWxlY3RvcihcIi5yZXZlYWwgPiAuc2xpZGVzXCIpLmFwcGVuZENoaWxkKHJldmVhbFN0YXR1cyk7XG4gIH1cblxuICAvLyBNYWtlIGFueSByZXZlYWwgc2xpZGVzIHdpdGggbGl2ZSBjZWxscyBzY3JvbGxhYmxlXG4gIGRvY3VtZW50LnF1ZXJ5U2VsZWN0b3JBbGwoXCIucmV2ZWFsIC5leGVyY2lzZS1jZWxsXCIpLmZvckVhY2goKGVsKSA9PiB7XG4gICAgZWwuY2xvc2VzdCgnc2VjdGlvbi5zbGlkZScpLmNsYXNzTGlzdC5hZGQoXCJzY3JvbGxhYmxlXCIpO1xuICB9KVxuXG4gIC8vIHdlYlIgc3VwcGxlbWVudGFsIGRhdGEgYW5kIG9wdGlvbnNcbiAgY29uc3QgZGF0YUNvbnRlbnQgPSBkb2N1bWVudC5xdWVyeVNlbGVjdG9yKGBzY3JpcHRbdHlwZT1cXFwid2Vici1kYXRhXFxcIl1gKS50ZXh0Q29udGVudDtcbiAgY29uc3QgZGF0YSA9IEpTT04ucGFyc2UoYjY0RGVjb2RlKGRhdGFDb250ZW50KSk7XG5cbiAgLy8gR3JhYiBsaXN0IG9mIHJlc291cmNlcyB0byBiZSBkb3dubG9hZGVkXG4gIGNvbnN0IGZpbGVzQ29udGVudCA9IGRvY3VtZW50LnF1ZXJ5U2VsZWN0b3IoYHNjcmlwdFt0eXBlPVxcXCJ2ZnMtZmlsZVxcXCJdYCkudGV4dENvbnRlbnQ7XG4gIGNvbnN0IGZpbGVzID0gSlNPTi5wYXJzZShiNjREZWNvZGUoZmlsZXNDb250ZW50KSk7XG5cbiAgLy8gSW5pdGlhbGlzZSB3ZWJSIGFuZCBzZXR1cCBmb3IgUiBjb2RlIGV2YWx1YXRpb25cbiAgbGV0IHdlYlJQcm9taXNlID0gKGFzeW5jICh3ZWJSKSA9PiB7XG4gICAgc3RhdHVzVGV4dC50ZXh0Q29udGVudCA9IGBEb3dubG9hZGluZyB3ZWJSYDtcbiAgICBhd2FpdCB3ZWJSLmluaXQoKTtcblxuICAgIC8vIEluc3RhbGwgcHJvdmlkZWQgbGlzdCBvZiBwYWNrYWdlc1xuICAgIC8vIEVuc3VyZSB3ZWJSIGRlZmF1bHQgcmVwbyBpcyBpbmNsdWRlZFxuICAgIGRhdGEucGFja2FnZXMucmVwb3MucHVzaChcImh0dHBzOi8vcmVwby5yLXdhc20ub3JnXCIpXG4gICAgYXdhaXQgZGF0YS5wYWNrYWdlcy5wa2dzLm1hcCgocGtnKSA9PiAoKSA9PiB7XG4gICAgICBzdGF0dXNUZXh0LnRleHRDb250ZW50ID0gYERvd25sb2FkaW5nIHBhY2thZ2U6ICR7cGtnfWA7XG4gICAgICByZXR1cm4gd2ViUi5ldmFsUlZvaWQoYFxuICAgICAgICB3ZWJyOjppbnN0YWxsKHBrZywgcmVwb3MgPSByZXBvcylcbiAgICAgICAgbGlicmFyeShwa2csIGNoYXJhY3Rlci5vbmx5ID0gVFJVRSlcbiAgICAgIGAsIHsgZW52OiB7XG4gICAgICAgIHBrZzogcGtnLFxuICAgICAgICByZXBvczogZGF0YS5wYWNrYWdlcy5yZXBvcyxcbiAgICAgIH19KTtcbiAgICB9KS5yZWR1Y2UoKGN1ciwgbmV4dCkgPT4gY3VyLnRoZW4obmV4dCksIFByb21pc2UucmVzb2x2ZSgpKTtcblxuICAgIC8vIERvd25sb2FkIGFuZCBpbnN0YWxsIHJlc291cmNlc1xuICAgIGF3YWl0IGZpbGVzLm1hcCgoZmlsZSkgPT4gYXN5bmMgKCkgPT4ge1xuICAgICAgY29uc3QgbmFtZSA9IGZpbGUuc3Vic3RyaW5nKGZpbGUubGFzdEluZGV4T2YoJy8nKSArIDEpO1xuICAgICAgc3RhdHVzVGV4dC50ZXh0Q29udGVudCA9IGBEb3dubG9hZGluZyByZXNvdXJjZTogJHtuYW1lfWA7XG4gICAgICBjb25zdCByZXNwb25zZSA9IGF3YWl0IGZldGNoKGZpbGUpO1xuICAgICAgaWYgKCFyZXNwb25zZS5vaykge1xuICAgICAgICB0aHJvdyBuZXcgRXJyb3IoYENhbid0IGRvd25sb2FkIFxcYCR7ZmlsZX1cXGAuIEVycm9yICR7cmVzcG9uc2Uuc3RhdHVzfTogXCIke3Jlc3BvbnNlLnN0YXR1c1RleHR9XCIuYCk7XG4gICAgICB9XG4gICAgICBjb25zdCBkYXRhID0gYXdhaXQgcmVzcG9uc2UuYXJyYXlCdWZmZXIoKTtcblxuICAgICAgLy8gU3RvcmUgVVJMcyBpbiB0aGUgY3dkIHdpdGhvdXQgYW55IHN1YmRpcmVjdG9yeSBzdHJ1Y3R1cmVcbiAgICAgIGlmIChmaWxlLmluY2x1ZGVzKFwiOi8vXCIpKSB7XG4gICAgICAgIGZpbGUgPSBuYW1lO1xuICAgICAgfVxuXG4gICAgICAvLyBDb2xsYXBzZSBoaWdoZXIgZGlyZWN0b3J5IHN0cnVjdHVyZVxuICAgICAgZmlsZSA9IGNvbGxhcHNlUGF0aChmaWxlKTtcblxuICAgICAgLy8gQ3JlYXRlIGRpcmVjdG9yeSB0cmVlLCBpZ25vcmluZyBcImRpcmVjdG9yeSBleGlzdHNcIiBWRlMgZXJyb3JzXG4gICAgICBjb25zdCBwYXJ0cyA9IGZpbGUuc3BsaXQoJy8nKS5zbGljZSgwLCAtMSk7XG4gICAgICBsZXQgcGF0aCA9ICcnO1xuICAgICAgd2hpbGUgKHBhcnRzLmxlbmd0aCA+IDApIHtcbiAgICAgICAgcGF0aCArPSBwYXJ0cy5zaGlmdCgpICsgJy8nO1xuICAgICAgICBjb25zdCBhbmFseXNpcyA9IGF3YWl0IHdlYlIuRlMuYW5hbHl6ZVBhdGgocGF0aCk7XG4gICAgICAgIGlmICghYW5hbHlzaXMuZXhpc3RzKSB7XG4gICAgICAgICAgdHJ5IHtcbiAgICAgICAgICAgIGF3YWl0IHdlYlIuRlMubWtkaXIocGF0aCk7XG4gICAgICAgICAgfSBjYXRjaCAoZSkge1xuICAgICAgICAgICAgdGhyb3cgbmV3IEVycm9yKGBGaWxlc3lzdGVtIEVycm9yOiBcIiR7ZS5tZXNzYWdlfVwiLmApO1xuICAgICAgICAgIH1cbiAgICAgICAgfVxuICAgICAgfVxuXG4gICAgICAvLyBXcml0ZSB0aGlzIGZpbGUgdG8gdGhlIFZGU1xuICAgICAgcmV0dXJuIGF3YWl0IHdlYlIuRlMud3JpdGVGaWxlKGZpbGUsIG5ldyBVaW50OEFycmF5KGRhdGEpKTtcbiAgICB9KS5yZWR1Y2UoKGN1ciwgbmV4dCkgPT4gY3VyLnRoZW4obmV4dCksIFByb21pc2UucmVzb2x2ZSgpKTtcblxuICAgIHN0YXR1c1RleHQudGV4dENvbnRlbnQgPSBgSW5zdGFsbGluZyB3ZWJSIHNoaW1zYDtcbiAgICBhd2FpdCB3ZWJSLmV2YWxSVm9pZChgd2Vicjo6c2hpbV9pbnN0YWxsKClgKTtcblxuICAgIHN0YXR1c1RleHQudGV4dENvbnRlbnQgPSBgV2ViUiBlbnZpcm9ubWVudCBzZXR1cGA7XG4gICAgYXdhaXQgc2V0dXBSKHdlYlIsIGRhdGEpO1xuXG4gICAgc3RhdHVzVGV4dC5yZW1vdmUoKTtcbiAgICBpZiAoc3RhdHVzQ29udGFpbmVyLmNoaWxkcmVuLmxlbmd0aCA9PSAwKSB7XG4gICAgICBzdGF0dXNDb250YWluZXIucGFyZW50Tm9kZS5yZW1vdmUoKTtcbiAgICB9XG4gICAgcmV0dXJuIHdlYlI7XG4gIH0pKG5ldyBXZWJSKGRhdGEub3B0aW9ucykpO1xuXG4gIC8vIEtlZXAgdHJhY2sgb2YgaW5pdGlhbCBPSlMgYmxvY2sgcmVuZGVyXG4gIGNvbnN0IHJlbmRlcmVkT2pzID0ge307XG5cbiAgY29uc3QgcHJvY2VzcyA9IGFzeW5jIChjb250ZXh0LCBpbnB1dHMpID0+IHtcbiAgICBjb25zdCB3ZWJSID0gYXdhaXQgd2ViUlByb21pc2U7XG4gICAgY29uc3QgZXZhbHVhdG9yID0gbmV3IFdlYlJFdmFsdWF0b3Iod2ViUiwgY29udGV4dClcbiAgICBhd2FpdCBldmFsdWF0b3IucHJvY2VzcyhpbnB1dHMpO1xuICAgIHJldHVybiBldmFsdWF0b3IuY29udGFpbmVyO1xuICB9XG5cbiAgcmV0dXJuIHtcbiAgICBwcm9jZXNzLFxuICAgIHdlYlJQcm9taXNlLFxuICAgIHJlbmRlcmVkT2pzLFxuICB9O1xufVxuIn1dfQ==
+</script>
+<div id="exercise-loading-indicator" class="exercise-loading-indicator d-none d-flex align-items-center gap-2">
+<div id="exercise-loading-status" class="d-flex gap-2">
+
+</div>
+<div class="spinner-grow spinner-grow-sm">
+
+</div>
+</div>
+<script type="vfs-file">
+W10=
+</script>
+<div id="refs" class="references csl-bib-body hanging-indent" role="list" style="display: none">
+<div id="ref-austin2013" class="csl-entry" role="listitem">
+Austin, Peter C. 2014. <span>“The Use of Propensity Score Methods with Survival or Time-to-Event Outcomes: Reporting Measures of Effect Similar to Those Used in Randomized Experiments.”</span> <em>Statistics in Medicine</em> 33 (7): 1242–58.
+</div>
+<div id="ref-strobe2007" class="csl-entry" role="listitem">
+Elm, Erik von, Douglas G. Altman, Matthias Egger, Stuart J. Pocock, Peter C. Gøtzsche, and Jan P. Vandenbroucke. 2007. <span>“Strengthening the Reporting of Observational Studies in Epidemiology (<span>STROBE</span>) Statement: Guidelines for Reporting Observational Studies.”</span> <em>BMJ</em> 335 (7624): 806–8. <a href="https://doi.org/10.1136/bmj.39335.541782.AD">https://doi.org/10.1136/bmj.39335.541782.AD</a>.
+</div>
+<div id="ref-hernan2020" class="csl-entry" role="listitem">
+Hernán, Miguel A., and James M. Robins. 2020. <em>Causal Inference: What If</em>. Chapman &amp; Hall/CRC. <a href="https://miguelhernan.org/whatifbook">https://miguelhernan.org/whatifbook</a>.
+</div>
+<div id="ref-royston2013" class="csl-entry" role="listitem">
+Royston, Patrick, and Mahesh K. B. Parmar. 2013. <span>“Restricted Mean Survival Time: An Alternative to the Hazard Ratio for the Design and Analysis of Randomized Trials with a Time-to-Event Outcome.”</span> <em>BMC Medical Research Methodology</em> 13: 152. <a href="https://doi.org/10.1186/1471-2288-13-152">https://doi.org/10.1186/1471-2288-13-152</a>.
+</div>
+<div id="ref-vanderweele2017" class="csl-entry" role="listitem">
+VanderWeele, Tyler J., and Peng Ding. 2017. <span>“Sensitivity Analysis in Observational Research: Introducing the <span>E</span>-Value.”</span> <em>Annals of Internal Medicine</em> 167 (4): 268–74.
+</div>
+<div id="ref-westreich2013" class="csl-entry" role="listitem">
+Westreich, Daniel, and Sander Greenland. 2013. <span>“The <span>Table 2</span> Fallacy: Presenting and Interpreting Confounder and Modifier Coefficients.”</span> <em>American Journal of Epidemiology</em> 177 (4): 292–98. <a href="https://doi.org/10.1093/aje/kws412">https://doi.org/10.1093/aje/kws412</a>.
+</div>
+</div>
+</section>
+
+</main> <!-- /main -->
+<script type="ojs-module-contents">
+eyJjb250ZW50cyI6W3sibWV0aG9kTmFtZSI6ImludGVycHJldCIsImNlbGxOYW1lIjoib2pzLWNlbGwtMSIsImlubGluZSI6ZmFsc2UsInNvdXJjZSI6InF1aXooW1xuIHtcbiAgXCJxXCI6IFwiV2hhdCBpcyBhIHByb3BlbnNpdHkgc2NvcmU/XCIsXG4gIFwib3B0aW9uc1wiOiBbXG4gICBcIlRoZSBwcm9iYWJpbGl0eSBvZiBiZWluZyB0cmVhdGVkLCBnaXZlbiB0aGUgbWVhc3VyZWQgY292YXJpYXRlc1wiLFxuICAgXCJUaGUgcHJvYmFiaWxpdHkgb2YgZHlpbmcgZHVyaW5nIGZvbGxvdy11cFwiLFxuICAgXCJBIG1lYXN1cmUgb2YgaG93IGltYmFsYW5jZWQgdHdvIGdyb3VwcyBhcmVcIixcbiAgIFwiVGhlIHByZWRpY3RlZCBzdXJ2aXZhbCB0aW1lXCJcbiAgXSxcbiAgXCJhbnN3ZXJcIjogMCxcbiAgXCJ3aHlcIjogXCJJdCBjb21iaW5lcyBhbGwgdGhlIG1lYXN1cmVkIGNvbmZvdW5kZXJzIGludG8gb25lIG51bWJlciwgZWFjaCBwYXRpZW50J3MgY2hhbmNlIG9mIGJlaW5nIHRyZWF0ZWQuIE1hdGNoaW5nIG9uIGl0IGJhbGFuY2VzIHRob3NlIGNvbmZvdW5kZXJzLlwiLFxuICBcImhpbnRzXCI6IFtcbiAgIFwiXCIsXG4gICBcIlRoZSBwcm9wZW5zaXR5IHNjb3JlIGlzIGFib3V0IHRyZWF0bWVudCwgbm90IHRoZSBvdXRjb21lLiBPdXRjb21lcyBwbGF5IG5vIHBhcnQgaW4gaXQuXCIsXG4gICBcIlRoYXQncyB0aGUgU01ELlwiLFxuICAgXCJTdXJ2aXZhbCB0aW1lcyBwbGF5IG5vIHBhcnQgaW4gdGhlIHByb3BlbnNpdHkgc2NvcmUuXCJcbiAgXVxuIH0sXG4ge1xuICBcInFcIjogXCJBZnRlciBtYXRjaGluZywgd2hpY2ggcmVzdWx0IHRlbGxzIHlvdSB0aGUgbWF0Y2hpbmcgd29ya2VkP1wiLFxuICBcIm9wdGlvbnNcIjogW1xuICAgXCJFdmVyeSBjb3ZhcmlhdGUgaGFzIHxTTUR8IGJlbG93IDAuMVwiLFxuICAgXCJUcmVhdGVkIGFuZCB1bnRyZWF0ZWQgcGF0aWVudHMgaGF2ZSB0aGUgc2FtZSBzdXJ2aXZhbFwiLFxuICAgXCJFdmVyeSBjb3ZhcmlhdGUgaGFzIGEgcC12YWx1ZSBhYm92ZSAwLjA1XCIsXG4gICBcIkV2ZXJ5IHRyZWF0ZWQgcGF0aWVudCBmb3VuZCBhIG1hdGNoXCJcbiAgXSxcbiAgXCJhbnN3ZXJcIjogMCxcbiAgXCJ3aHlcIjogXCJCYWxhbmNlIGlzIGp1ZGdlZCBieSBTTURzLCB3aGljaCBkb24ndCBkZXBlbmQgb24gc2FtcGxlIHNpemUuIE91dGNvbWVzIHNob3VsZG4ndCBiZSBsb29rZWQgYXQgdW50aWwgdGhlIGRlc2lnbiBpcyBzZXR0bGVkLlwiLFxuICBcImhpbnRzXCI6IFtcbiAgIFwiXCIsXG4gICBcIk91dGNvbWVzIHBsYXkgbm8gcGFydCBpbiBqdWRnaW5nIHRoZSBtYXRjaGluZy4gVGhhdCdzIHRoZSBwb2ludCBvZiBzZXR0bGluZyB0aGUgZGVzaWduIGZpcnN0LlwiLFxuICAgXCJwLXZhbHVlcyBkZXBlbmQgb24gc2FtcGxlIHNpemUsIHNvIHRoZXkncmUgYSBwb29yIGd1aWRlIHRvIGJhbGFuY2UuXCIsXG4gICBcIktlZXBpbmcgZXZlcnlvbmUgY2FuIG1lYW4gYWNjZXB0aW5nIHBvb3IgbWF0Y2hlcy4gQmFsYW5jZSBpcyB3aGF0IG1hdHRlcnMuXCJcbiAgXVxuIH1cbl0pXG4ifSx7Im1ldGhvZE5hbWUiOiJpbnRlcnByZXQiLCJjZWxsTmFtZSI6Im9qcy1jZWxsLTIiLCJpbmxpbmUiOmZhbHNlLCJzb3VyY2UiOiJpbXBvcnQge3F1aXp9IGZyb20gXCIuL2pzL3N1cnZ0b29scy5qc1wiXG4ifSx7Im1ldGhvZE5hbWUiOiJpbnRlcnByZXQiLCJjZWxsTmFtZSI6Im9qcy1jZWxsLTMiLCJpbmxpbmUiOmZhbHNlLCJzb3VyY2UiOiJxdWl6KFtcbiB7XG4gIFwicVwiOiBcIldoeSBkbyB3ZSB1c2UgPGNvZGU+cm9idXN0ID0gVFJVRSwgY2x1c3RlciA9IHN1YmNsYXNzPC9jb2RlPiB3aGVuIGZpdHRpbmcgdGhlIENveCBtb2RlbCB0byBtYXRjaGVkIGRhdGE/XCIsXG4gIFwib3B0aW9uc1wiOiBbXG4gICBcIlRvIGFkanVzdCBmb3IgY29uZm91bmRpbmdcIixcbiAgIFwiQmVjYXVzZSBtZW1iZXJzIG9mIGEgbWF0Y2hlZCBwYWlyIGFyZSBzaW1pbGFyLCBzbyBvYnNlcnZhdGlvbnMgYXJlbid0IGluZGVwZW5kZW50IGFuZCBvcmRpbmFyeSBTRXMgYXJlIHdyb25nXCIsXG4gICBcIlRvIG1ha2UgdGhlIGhhemFyZCByYXRpbyBjbG9zZXIgdG8gMVwiLFxuICAgXCJJdCdzIG5lZWRlZCBmb3IgdGhlIG1vZGVsIHRvIGNvbnZlcmdlXCJcbiAgXSxcbiAgXCJhbnN3ZXJcIjogMSxcbiAgXCJ3aHlcIjogXCJUaGUgc2FuZHdpY2ggKHJvYnVzdCkgdmFyaWFuY2UgYWxsb3dzIGZvciBjb3JyZWxhdGlvbiB3aXRoaW4gbWF0Y2hlZCBwYWlycy4gSXQgY2hhbmdlcyB0aGUgc3RhbmRhcmQgZXJyb3IgYW5kIENJLCBub3QgdGhlIEhSIGl0c2VsZi5cIixcbiAgXCJoaW50c1wiOiBbXG4gICBcIk1hdGNoaW5nIGhhbmRsZXMgY29uZm91bmRpbmcuIFRoZSBjbHVzdGVyIG9wdGlvbiBvbmx5IGFmZmVjdHMgdGhlIHN0YW5kYXJkIGVycm9ycy5cIixcbiAgIFwiXCIsXG4gICBcIlRoZSBwb2ludCBlc3RpbWF0ZSBpcyB0aGUgc2FtZSB3aXRoIG9yIHdpdGhvdXQgaXQuXCIsXG4gICBcIlRoZSBtb2RlbCBjb252ZXJnZXMgZWl0aGVyIHdheS5cIlxuICBdXG4gfSxcbiB7XG4gIFwicVwiOiBcIldoeSBzaG91bGQgeW91IGNoZWNrIGNvdmFyaWF0ZSBiYWxhbmNlIDxpPmJlZm9yZTwvaT4gbG9va2luZyBhdCB0aGUgc3Vydml2YWwgb3V0Y29tZXM/XCIsXG4gIFwib3B0aW9uc1wiOiBbXG4gICBcIkJlY2F1c2UgdGhlIG91dGNvbWUgZGF0YSBtaWdodCBiZSBtaXNzaW5nXCIsXG4gICBcIlNvIHRoYXQgY2hvaWNlcyBhYm91dCB0aGUgbWF0Y2hpbmcgKGNhbGlwZXIsIGNvdmFyaWF0ZXMpIGNhbid0IGJlIGluZmx1ZW5jZWQsIGV2ZW4gdW5jb25zY2lvdXNseSwgYnkgd2hpY2ggcmVzdWx0IHRoZXkgZ2l2ZVwiLFxuICAgXCJCZWNhdXNlIGJhbGFuY2UgY2FuJ3QgYmUgY2hlY2tlZCBhZnRlciB0aGUgb3V0Y29tZXMgYXJlIGtub3duXCIsXG4gICBcIkl0IGRvZXNuJ3QgbWF0dGVyIHdoZW4geW91IGNoZWNrIGJhbGFuY2VcIlxuICBdLFxuICBcImFuc3dlclwiOiAxLFxuICBcIndoeVwiOiBcIlNldHRsaW5nIHRoZSBkZXNpZ24gZmlyc3QsIHdpdGhvdXQgc2VlaW5nIG91dGNvbWVzLCB3b3JrcyBsaWtlIHRoZSBibGluZGluZyBpbiBhIHRyaWFsLiBJdCBzdG9wcyB5b3UgZnJvbSB0cnlpbmcgZGlmZmVyZW50IG1hdGNoaW5nIG9wdGlvbnMgdW50aWwgeW91IGdldCB0aGUgcmVzdWx0IHlvdSBob3BlZCBmb3IuXCIsXG4gIFwiaGludHNcIjogW1xuICAgXCJNaXNzaW5nIGRhdGEgaXMgYSBzZXBhcmF0ZSBpc3N1ZS5cIixcbiAgIFwiXCIsXG4gICBcIkJhbGFuY2UgY2FuIGJlIGNoZWNrZWQgYXQgYW55IHRpbWUuIFRoZSBwb2ludCBpcyBhYm91dCB3aGF0IHlvdSd2ZSBzZWVuIHdoZW4geW91IG1ha2UgZGVzaWduIGNob2ljZXMuXCIsXG4gICBcIklmIHlvdSB0cnkgc2V2ZXJhbCBtYXRjaGluZyBvcHRpb25zIGFuZCBsb29rIGF0IHRoZSBvdXRjb21lIGVhY2ggdGltZSwgeW91IGNhbiBlbmQgdXAgY2hvb3NpbmcgdGhlIG9uZSB3aXRoIHRoZSAnYmVzdCcgcmVzdWx0LlwiXG4gIF1cbiB9LFxuIHtcbiAgXCJxXCI6IFwiSW4gdGhlIGZ1bGwgY29ob3J0IHRoZSBuYWl2ZSBIUiB3YXMgYWJvdXQgMS4xMSwgc28gdHJlYXRtZW50IGxvb2tlZCBoYXJtZnVsLiBXaHk/XCIsXG4gIFwib3B0aW9uc1wiOiBbXG4gICBcIlRyZWF0bWVudCByZWFsbHkgaXMgaGFybWZ1bFwiLFxuICAgXCJUcmVhdGVkIHBhdGllbnRzIHdlcmUgb2xkZXIgYW5kIG1vcmUgb2Z0ZW4gZGlhYmV0aWMgb3Igc21va2Vycywgc28gdGhleSB3ZXJlIGF0IGhpZ2hlciByaXNrIGFueXdheSAoY29uZm91bmRpbmcgYnkgaW5kaWNhdGlvbilcIixcbiAgIFwiVGhlcmUgd2FzIHRvbyBtdWNoIGNlbnNvcmluZ1wiLFxuICAgXCJUaGUgcHJvcG9ydGlvbmFsIGhhemFyZHMgYXNzdW1wdGlvbiBmYWlsZWRcIlxuICBdLFxuICBcImFuc3dlclwiOiAxLFxuICBcIndoeVwiOiBcIlRoZSBzaW11bGF0aW9uIGdhdmUgdHJlYXRtZW50IHRvIGhpZ2hlci1yaXNrIHBhdGllbnRzLiBDb21wYXJlZCBjcnVkZWx5LCB0aGVpciBleHRyYSBiYXNlbGluZSByaXNrIGhpZGVzIHRoZSBiZW5lZml0IG9mIHRyZWF0bWVudC5cIixcbiAgXCJoaW50c1wiOiBbXG4gICBcIldlIGJ1aWx0IHRoZSBkYXRhIHdpdGggYSB0cnVlIEhSIG9mIDAuNzAsIHNvIHRyZWF0bWVudCBpcyBiZW5lZmljaWFsLlwiLFxuICAgXCJcIixcbiAgIFwiTm9uLWluZm9ybWF0aXZlIGNlbnNvcmluZyBkb2Vzbid0IGJpYXMgS00gb3IgQ294IGVzdGltYXRlcy5cIixcbiAgIFwiUEggaG9sZHMgaW4gdGhlc2UgZGF0YS4gVGhlIHByb2JsZW0gaXMgY29uZm91bmRpbmcuXCJcbiAgXVxuIH0sXG4ge1xuICBcInFcIjogXCJXaGljaCBvZiB0aGVzZSBpcyBhbiA8aT5hYnNvbHV0ZTwvaT4gZWZmZWN0IG1lYXN1cmUgdG8gcmVwb3J0IGFsb25nc2lkZSB0aGUgSFI/XCIsXG4gIFwib3B0aW9uc1wiOiBbXG4gICBcIlRoZSBoYXphcmQgcmF0aW8ncyBwLXZhbHVlXCIsXG4gICBcIlRoZSBkaWZmZXJlbmNlIGluIDUteWVhciBzdXJ2aXZhbCBiZXR3ZWVuIG1hdGNoZWQgZ3JvdXBzIChvciB0aGUgUk1TVCBkaWZmZXJlbmNlKVwiLFxuICAgXCJUaGUgY29uY29yZGFuY2UgaW5kZXhcIixcbiAgIFwiVGhlIHN0YW5kYXJkaXNlZCBtZWFuIGRpZmZlcmVuY2VcIlxuICBdLFxuICBcImFuc3dlclwiOiAxLFxuICBcIndoeVwiOiBcIlN1cnZpdmFsIGRpZmZlcmVuY2VzIGF0IGZpeGVkIHRpbWVzIGFuZCBSTVNUIGRpZmZlcmVuY2VzIGFyZSBvbiB0aGUgc2NhbGUgb2YgcGF0aWVudHMgYW5kIHRpbWUsIHdoaWNoIGlzIGVhc2llciB0byBpbnRlcnByZXQgdGhhbiBhIHJhdGlvIG9mIHJhdGVzLlwiLFxuICBcImhpbnRzXCI6IFtcbiAgIFwiQSBwLXZhbHVlIGlzIG5vdCBhbiBlZmZlY3QgbWVhc3VyZS5cIixcbiAgIFwiXCIsXG4gICBcIkNvbmNvcmRhbmNlIG1lYXN1cmVzIGhvdyB3ZWxsIGEgbW9kZWwgZGlzY3JpbWluYXRlcywgbm90IGEgdHJlYXRtZW50IGVmZmVjdC5cIixcbiAgIFwiU01EcyBkZXNjcmliZSBjb3ZhcmlhdGUgYmFsYW5jZSwgbm90IG91dGNvbWVzLlwiXG4gIF1cbiB9XG5dKVxuIn1dfQ==
+</script>
+<script type="module">
+if (window.location.protocol === "file:") { alert("The OJS runtime does not work with file:// URLs. Please use a web server to view this document."); }
+window._ojs.paths.runtimeToDoc = "../..";
+window._ojs.paths.runtimeToRoot = "../..";
+window._ojs.paths.docToRoot = "";
+window._ojs.selfContained = false;
+window._ojs.runtime.interpretFromScriptTags();
+</script>
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    // Ensure there is a toggle, if there isn't float one in the top right
+    if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+      const a = window.document.createElement('a');
+      a.classList.add('top-right');
+      a.classList.add('quarto-color-scheme-toggle');
+      a.href = "";
+      a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+      const i = window.document.createElement("i");
+      i.classList.add('bi');
+      a.appendChild(i);
+      window.document.body.appendChild(a);
+    }
+    setColorSchemeToggle(hasAlternateSentinel())
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="./06-matching-in-r.html" class="pagination-link" aria-label="Matching in R">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">Matching in R</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="./part-going-further.html" class="pagination-link" aria-label="Going further">
+        <span class="nav-page-text">Going further</span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+      &nbsp;
+    </div>   
+    <div class="nav-footer-center">
+<p>© 2026 Tom Goodale. Text and figures licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>; code licensed under the <a href="LICENSE.md">MIT licence</a>.</p>
+</div>
+    <div class="nav-footer-right">
+      &nbsp;
+    </div>
+  </div>
+</footer>
+
+
+
+
+</body></html>

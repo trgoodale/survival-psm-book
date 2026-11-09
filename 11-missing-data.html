@@ -1,0 +1,1641 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.9.38">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>11&nbsp; Missing data – Survival Analysis &amp; Propensity Scores in R</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+/* CSS for citations */
+div.csl-bib-body { }
+div.csl-entry {
+  clear: both;
+}
+.hanging-indent div.csl-entry {
+  margin-left:2em;
+  text-indent:-2em;
+}
+div.csl-left-margin {
+  min-width:2em;
+  float:left;
+}
+div.csl-right-inline {
+  margin-left:2em;
+  padding-left:1em;
+}
+div.csl-indent {
+  margin-left: 2em;
+}</style>
+
+
+<script src="site_libs/quarto-nav/quarto-nav.js"></script>
+<script src="site_libs/quarto-nav/headroom.min.js"></script>
+<script src="site_libs/clipboard/clipboard.min.js"></script>
+<script src="site_libs/quarto-search/autocomplete.umd.js"></script>
+<script src="site_libs/quarto-search/fuse.min.js"></script>
+<script src="site_libs/quarto-search/quarto-search.js"></script>
+<meta name="quarto:offset" content="./">
+<link href="./a1-cheatsheet.html" rel="next">
+<link href="./10-non-ph.html" rel="prev">
+<script src="site_libs/quarto-html/quarto.js" type="module"></script>
+<script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="site_libs/quarto-html/popper.min.js"></script>
+<script src="site_libs/quarto-html/tippy.umd.min.js"></script>
+<script src="site_libs/quarto-html/anchor.min.js"></script>
+<link href="site_libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" class="quarto-color-scheme" id="quarto-text-highlighting-styles">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-dark-0a6b7249c26820e032cb0bd839ff02b1.css" rel="stylesheet" class="quarto-color-scheme quarto-color-alternate" id="quarto-text-highlighting-styles">
+<link href="site_libs/quarto-html/quarto-syntax-highlighting-15634bcf2e68342d4ad2dfa704d543f6.css" rel="stylesheet" class="quarto-color-scheme-extra" id="quarto-text-highlighting-styles">
+<script src="site_libs/bootstrap/bootstrap.min.js"></script>
+<link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="site_libs/bootstrap/bootstrap-832e3d7b6b94ddcc90a000f8fabe51a9.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme" id="quarto-bootstrap" data-mode="light">
+<link href="site_libs/bootstrap/bootstrap-dark-a650804e777b326bf1a0b0c4c361015f.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme quarto-color-alternate" id="quarto-bootstrap" data-mode="dark">
+<link href="site_libs/bootstrap/bootstrap-832e3d7b6b94ddcc90a000f8fabe51a9.min.css" rel="stylesheet" append-hash="true" class="quarto-color-scheme-extra" id="quarto-bootstrap" data-mode="light">
+<script src="site_libs/quarto-contrib/live-runtime/live-runtime.js" type="module"></script>
+<link href="site_libs/quarto-contrib/live-runtime/live-runtime.css" rel="stylesheet">
+<script id="quarto-search-options" type="application/json">{
+  "location": "sidebar",
+  "copy-button": false,
+  "collapse-after": 3,
+  "panel-placement": "start",
+  "type": "textbox",
+  "limit": 50,
+  "keyboard-shortcut": [
+    "f",
+    "/",
+    "s"
+  ],
+  "show-item-context": false,
+  "language": {
+    "search-no-results-text": "No results",
+    "search-matching-documents-text": "matching documents",
+    "search-copy-link-title": "Copy link to search",
+    "search-hide-matches-text": "Hide additional matches",
+    "search-more-match-text": "more match in this document",
+    "search-more-matches-text": "more matches in this document",
+    "search-clear-button-title": "Clear",
+    "search-text-placeholder": "",
+    "search-detached-cancel-button-title": "Cancel",
+    "search-submit-button-title": "Submit",
+    "search-label": "Search"
+  }
+}</script>
+<script type="module" src="site_libs/quarto-ojs/quarto-ojs-runtime.js"></script>
+<link href="site_libs/quarto-ojs/quarto-ojs.css" rel="stylesheet">
+
+  <script src="https://cdnjs.cloudflare.com/polyfill/v3/polyfill.min.js?features=es6"></script>
+  <script defer="" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml-full.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+<link rel="stylesheet" href="styles.css">
+</head>
+
+<body class="nav-sidebar floating quarto-light"><script id="quarto-html-before-body" type="application/javascript">
+    const toggleBodyColorMode = (bsSheetEl) => {
+      const mode = bsSheetEl.getAttribute("data-mode");
+      const bodyEl = window.document.querySelector("body");
+      if (mode === "dark") {
+        bodyEl.classList.add("quarto-dark");
+        bodyEl.classList.remove("quarto-light");
+      } else {
+        bodyEl.classList.add("quarto-light");
+        bodyEl.classList.remove("quarto-dark");
+      }
+    }
+    const toggleBodyColorPrimary = () => {
+      const bsSheetEl = window.document.querySelector("link#quarto-bootstrap:not([rel=disabled-stylesheet])");
+      if (bsSheetEl) {
+        toggleBodyColorMode(bsSheetEl);
+      }
+    }
+    const setColorSchemeToggle = (alternate) => {
+      const toggles = window.document.querySelectorAll('.quarto-color-scheme-toggle');
+      for (let i=0; i < toggles.length; i++) {
+        const toggle = toggles[i];
+        if (toggle) {
+          if (alternate) {
+            toggle.classList.add("alternate");
+          } else {
+            toggle.classList.remove("alternate");
+          }
+        }
+      }
+    };
+    const toggleColorMode = (alternate) => {
+      // Switch the stylesheets
+      const primaryStylesheets = window.document.querySelectorAll('link.quarto-color-scheme:not(.quarto-color-alternate)');
+      const alternateStylesheets = window.document.querySelectorAll('link.quarto-color-scheme.quarto-color-alternate');
+      manageTransitions('#quarto-margin-sidebar .nav-link', false);
+      if (alternate) {
+        // note: dark is layered on light, we don't disable primary!
+        enableStylesheet(alternateStylesheets);
+        for (const sheetNode of alternateStylesheets) {
+          if (sheetNode.id === "quarto-bootstrap") {
+            toggleBodyColorMode(sheetNode);
+          }
+        }
+      } else {
+        disableStylesheet(alternateStylesheets);
+        enableStylesheet(primaryStylesheets)
+        toggleBodyColorPrimary();
+      }
+      manageTransitions('#quarto-margin-sidebar .nav-link', true);
+      // Switch the toggles
+      setColorSchemeToggle(alternate)
+      // Hack to workaround the fact that safari doesn't
+      // properly recolor the scrollbar when toggling (#1455)
+      if (navigator.userAgent.indexOf('Safari') > 0 && navigator.userAgent.indexOf('Chrome') == -1) {
+        manageTransitions("body", false);
+        window.scrollTo(0, 1);
+        setTimeout(() => {
+          window.scrollTo(0, 0);
+          manageTransitions("body", true);
+        }, 40);
+      }
+    }
+    const disableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        stylesheet.rel = 'disabled-stylesheet';
+      }
+    }
+    const enableStylesheet = (stylesheets) => {
+      for (let i=0; i < stylesheets.length; i++) {
+        const stylesheet = stylesheets[i];
+        if(stylesheet.rel !== 'stylesheet') { // for Chrome, which will still FOUC without this check
+          stylesheet.rel = 'stylesheet';
+        }
+      }
+    }
+    const manageTransitions = (selector, allowTransitions) => {
+      const els = window.document.querySelectorAll(selector);
+      for (let i=0; i < els.length; i++) {
+        const el = els[i];
+        if (allowTransitions) {
+          el.classList.remove('notransition');
+        } else {
+          el.classList.add('notransition');
+        }
+      }
+    }
+    const isFileUrl = () => {
+      return window.location.protocol === 'file:';
+    }
+    const hasAlternateSentinel = () => {
+      let styleSentinel = getColorSchemeSentinel();
+      if (styleSentinel !== null) {
+        return styleSentinel === "alternate";
+      } else {
+        return false;
+      }
+    }
+    const setStyleSentinel = (alternate) => {
+      const value = alternate ? "alternate" : "default";
+      if (!isFileUrl()) {
+        window.localStorage.setItem("quarto-color-scheme", value);
+      } else {
+        localAlternateSentinel = value;
+      }
+    }
+    const getColorSchemeSentinel = () => {
+      if (!isFileUrl()) {
+        const storageValue = window.localStorage.getItem("quarto-color-scheme");
+        return storageValue != null ? storageValue : localAlternateSentinel;
+      } else {
+        return localAlternateSentinel;
+      }
+    }
+    const toggleGiscusIfUsed = (isAlternate, darkModeDefault) => {
+      const baseTheme = document.querySelector('#giscus-base-theme')?.value ?? 'light';
+      const alternateTheme = document.querySelector('#giscus-alt-theme')?.value ?? 'dark';
+      let newTheme = '';
+      if(authorPrefersDark) {
+        newTheme = isAlternate ? baseTheme : alternateTheme;
+      } else {
+        newTheme = isAlternate ? alternateTheme : baseTheme;
+      }
+      const changeGiscusTheme = () => {
+        // From: https://github.com/giscus/giscus/issues/336
+        const sendMessage = (message) => {
+          const iframe = document.querySelector('iframe.giscus-frame');
+          if (!iframe) return;
+          iframe.contentWindow.postMessage({ giscus: message }, 'https://giscus.app');
+        }
+        sendMessage({
+          setConfig: {
+            theme: newTheme
+          }
+        });
+      }
+      const isGiscussLoaded = window.document.querySelector('iframe.giscus-frame') !== null;
+      if (isGiscussLoaded) {
+        changeGiscusTheme();
+      }
+    };
+    const authorPrefersDark = false;
+    const darkModeDefault = authorPrefersDark;
+      document.querySelector('link#quarto-text-highlighting-styles.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+      document.querySelector('link#quarto-bootstrap.quarto-color-scheme-extra').rel = 'disabled-stylesheet';
+    let localAlternateSentinel = darkModeDefault ? 'alternate' : 'default';
+    // Dark / light mode switch
+    window.quartoToggleColorScheme = () => {
+      // Read the current dark / light value
+      let toAlternate = !hasAlternateSentinel();
+      toggleColorMode(toAlternate);
+      setStyleSentinel(toAlternate);
+      toggleGiscusIfUsed(toAlternate, darkModeDefault);
+      window.dispatchEvent(new Event('resize'));
+    };
+    // Switch to dark mode if need be
+    if (hasAlternateSentinel()) {
+      toggleColorMode(true);
+    } else {
+      toggleColorMode(false);
+    }
+  </script>
+
+<div id="quarto-search-results"></div>
+  <header id="quarto-header" class="headroom fixed-top">
+  <nav class="quarto-secondary-nav">
+    <div class="container-fluid d-flex">
+      <button type="button" class="quarto-btn-toggle btn" data-bs-toggle="collapse" role="button" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">
+        <i class="bi bi-layout-text-sidebar-reverse"></i>
+      </button>
+        <nav class="quarto-page-breadcrumbs" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./part-going-further.html">Going further</a></li><li class="breadcrumb-item"><a href="./11-missing-data.html"><span class="chapter-number">11</span>&nbsp; <span class="chapter-title">Missing data</span></a></li></ol></nav>
+        <a class="flex-grow-1" role="navigation" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item" aria-controls="quarto-sidebar" aria-expanded="false" aria-label="Toggle sidebar navigation" onclick="if (window.quartoToggleHeadroom) { window.quartoToggleHeadroom(); }">      
+        </a>
+      <button type="button" class="btn quarto-search-button" aria-label="Search" onclick="window.quartoOpenSearch();">
+        <i class="bi bi-search"></i>
+      </button>
+    </div>
+  </nav>
+</header>
+<!-- content -->
+<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-article">
+<!-- sidebar -->
+  <nav id="quarto-sidebar" class="sidebar collapse collapse-horizontal quarto-sidebar-collapse-item sidebar-navigation floating overflow-auto">
+    <div class="pt-lg-2 mt-2 text-left sidebar-header">
+    <div class="sidebar-title mb-0 py-0">
+      <a href="./">Survival Analysis &amp; Propensity Scores in R</a> 
+        <div class="sidebar-tools-main">
+  <a href="" class="quarto-color-scheme-toggle quarto-navigation-tool  px-1" onclick="window.quartoToggleColorScheme(); return false;" title="Toggle dark mode"><i class="bi"></i></a>
+</div>
+    </div>
+      </div>
+        <div class="mt-2 flex-shrink-0 align-items-center">
+        <div class="sidebar-search">
+        <div id="quarto-search" class="" title="Search"></div>
+        </div>
+        </div>
+    <div class="sidebar-menu-container"> 
+    <ul class="list-unstyled mt-1">
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./index.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Welcome</span></a>
+  </div>
+</li>
+        <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./00-before-you-start.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Before you start</span></a>
+  </div>
+</li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true">
+ <span class="menu-text">The core course</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-1" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-1" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./01-survival-data.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">1</span>&nbsp; <span class="chapter-title">Time-to-event data and censoring</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./02-kaplan-meier.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">2</span>&nbsp; <span class="chapter-title">Kaplan–Meier curves and the log-rank test</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./03-cox-regression.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">3</span>&nbsp; <span class="chapter-title">Cox proportional hazards regression</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./04-traps.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">4</span>&nbsp; <span class="chapter-title">Common traps: censoring, competing events and time zero</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./05-propensity-scores.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">5</span>&nbsp; <span class="chapter-title">Confounding and propensity scores</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./06-matching-in-r.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">6</span>&nbsp; <span class="chapter-title">Matching in R</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./07-putting-it-together.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">7</span>&nbsp; <span class="chapter-title">Putting it together: a matched survival analysis</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a href="./part-going-further.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">Going further</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-2" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-2" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./08-shiny-apps.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">8</span>&nbsp; <span class="chapter-title">Shiny apps for open-ended exploration</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./09-weighting.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">9</span>&nbsp; <span class="chapter-title">Weighting and other matching methods</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./10-non-ph.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">10</span>&nbsp; <span class="chapter-title">When proportional hazards fail</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./11-missing-data.html" class="sidebar-item-text sidebar-link active">
+ <span class="menu-text"><span class="chapter-number">11</span>&nbsp; <span class="chapter-title">Missing data</span></span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+        <li class="sidebar-item sidebar-item-section">
+      <div class="sidebar-item-container"> 
+            <a class="sidebar-item-text sidebar-link text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true">
+ <span class="menu-text">Appendices</span></a>
+          <a class="sidebar-item-toggle text-start" data-bs-toggle="collapse" data-bs-target="#quarto-sidebar-section-3" role="navigation" aria-expanded="true" aria-label="Toggle section">
+            <i class="bi bi-chevron-right ms-2"></i>
+          </a> 
+      </div>
+      <ul id="quarto-sidebar-section-3" class="collapse list-unstyled sidebar-section depth1 show">  
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./a1-cheatsheet.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">R cheat sheet</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./a2-glossary.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">B</span>&nbsp; <span class="chapter-title">Glossary</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./a3-further-reading.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text"><span class="chapter-number">C</span>&nbsp; <span class="chapter-title">Further reading</span></span></a>
+  </div>
+</li>
+          <li class="sidebar-item">
+  <div class="sidebar-item-container"> 
+  <a href="./references.html" class="sidebar-item-text sidebar-link">
+ <span class="menu-text">References</span></a>
+  </div>
+</li>
+      </ul>
+  </li>
+    </ul>
+    </div>
+</nav>
+<div id="quarto-sidebar-glass" class="quarto-sidebar-collapse-item" data-bs-toggle="collapse" data-bs-target=".quarto-sidebar-collapse-item"></div>
+<!-- margin-sidebar -->
+    <div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+        <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#what-r-does-by-default" id="toc-what-r-does-by-default" class="nav-link active" data-scroll-target="#what-r-does-by-default"><span class="header-section-number">11.1</span> What R does by default</a>
+  <ul class="collapse">
+  <li><a href="#practice-how-much-has-the-model-dropped" id="toc-practice-how-much-has-the-model-dropped" class="nav-link" data-scroll-target="#practice-how-much-has-the-model-dropped"><span class="header-section-number">11.1.1</span> Practice: how much has the model dropped?</a></li>
+  </ul></li>
+  <li><a href="#when-does-missing-data-cause-bias" id="toc-when-does-missing-data-cause-bias" class="nav-link" data-scroll-target="#when-does-missing-data-cause-bias"><span class="header-section-number">11.2</span> When does missing data cause bias?</a></li>
+  <li><a href="#a-demonstration-with-a-known-truth" id="toc-a-demonstration-with-a-known-truth" class="nav-link" data-scroll-target="#a-demonstration-with-a-known-truth"><span class="header-section-number">11.3</span> A demonstration with a known truth</a></li>
+  <li><a href="#multiple-imputation" id="toc-multiple-imputation" class="nav-link" data-scroll-target="#multiple-imputation"><span class="header-section-number">11.4</span> Multiple imputation</a>
+  <ul class="collapse">
+  <li><a href="#step-1-include-the-outcome-the-right-way" id="toc-step-1-include-the-outcome-the-right-way" class="nav-link" data-scroll-target="#step-1-include-the-outcome-the-right-way"><span class="header-section-number">11.4.1</span> Step 1: include the outcome, the right way</a></li>
+  <li><a href="#step-2-impute" id="toc-step-2-impute" class="nav-link" data-scroll-target="#step-2-impute"><span class="header-section-number">11.4.2</span> Step 2: impute</a></li>
+  <li><a href="#step-3-analyse-and-pool" id="toc-step-3-analyse-and-pool" class="nav-link" data-scroll-target="#step-3-analyse-and-pool"><span class="header-section-number">11.4.3</span> Step 3: analyse and pool</a></li>
+  <li><a href="#practice-multiple-imputation" id="toc-practice-multiple-imputation" class="nav-link" data-scroll-target="#practice-multiple-imputation"><span class="header-section-number">11.4.4</span> Practice: multiple imputation</a></li>
+  </ul></li>
+  <li><a href="#missing-data-and-propensity-score-matching" id="toc-missing-data-and-propensity-score-matching" class="nav-link" data-scroll-target="#missing-data-and-propensity-score-matching"><span class="header-section-number">11.5</span> Missing data and propensity score matching</a></li>
+  <li><a href="#practical-advice" id="toc-practical-advice" class="nav-link" data-scroll-target="#practical-advice"><span class="header-section-number">11.6</span> Practical advice</a></li>
+  <li><a href="#quick-quiz" id="toc-quick-quiz" class="nav-link" data-scroll-target="#quick-quiz">Quick quiz</a></li>
+  <li><a href="#summary" id="toc-summary" class="nav-link" data-scroll-target="#summary"><span class="header-section-number">11.7</span> Summary</a></li>
+  <li><a href="#further-reading" id="toc-further-reading" class="nav-link" data-scroll-target="#further-reading"><span class="header-section-number">11.8</span> Further reading</a></li>
+  </ul>
+</nav>
+    </div>
+<!-- main -->
+<main class="content" id="quarto-document-content">
+
+
+<header id="title-block-header" class="quarto-title-block default"><nav class="quarto-page-breadcrumbs quarto-title-breadcrumbs d-none d-lg-block" aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="./part-going-further.html">Going further</a></li><li class="breadcrumb-item"><a href="./11-missing-data.html"><span class="chapter-number">11</span>&nbsp; <span class="chapter-title">Missing data</span></a></li></ol></nav>
+<div class="quarto-title">
+<h1 class="title"><span id="sec-missing" class="quarto-section-identifier"><span class="chapter-number">11</span>&nbsp; <span class="chapter-title">Missing data</span></span></h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<div class="callout callout-style-default callout-tip no-icon callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>You need this chapter if…
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li><code>coxph()</code> reports that <strong>observations were deleted due to missingness</strong>, and it’s more than a handful;</li>
+<li>a <strong>confounder</strong> you need for matching or adjustment has missing values;</li>
+<li>you’re wondering whether to just analyse the complete cases.</li>
+</ul>
+<p><em>This chapter builds on Chapter 3, and on Chapters 5–7 for the section on matching.</em></p>
+</div>
+</div>
+<div class="callout callout-style-default callout-note no-icon callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>In this chapter
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><strong>The question.</strong> Real datasets have gaps. What does R do with them by default, when does that give the wrong answer, and what should you do instead?</p>
+<p><strong>By the end of this chapter you will be able to:</strong></p>
+<ul>
+<li>spot how many patients a model has silently dropped;</li>
+<li>explain the three kinds of missing data (MCAR, MAR, MNAR), and when a complete-case analysis is biased;</li>
+<li>carry out <strong>multiple imputation</strong> with the <strong>mice</strong> package, including the survival outcome correctly, and pool the results;</li>
+<li>combine multiple imputation with propensity score matching using <strong>MatchThem</strong>.</li>
+</ul>
+</div>
+</div>
+<section id="what-r-does-by-default" class="level2" data-number="11.1">
+<h2 data-number="11.1" class="anchored" data-anchor-id="what-r-does-by-default"><span class="header-section-number">11.1</span> What R does by default</h2>
+<p>Most R modelling functions, including <code>coxph()</code>, quietly drop every row with a missing value in <em>any</em> variable in the model. This is called a <strong>complete-case analysis</strong>. In the <code>lung</code> data, a few variables have gaps:</p>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">colSums</span>(<span class="fu">is.na</span>(survival<span class="sc">::</span>lung))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt;      inst      time    status       age       sex   ph.ecog  ph.karno pat.karno 
+#&gt;         1         0         0         0         0         1         1         3 
+#&gt;  meal.cal   wt.loss 
+#&gt;        47        14</code></pre>
+</div>
+</div>
+<p>Each gap looks small. But put several of these variables in one model:</p>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb3"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> sex <span class="sc">+</span> age <span class="sc">+</span> ph.ecog <span class="sc">+</span> wt.loss <span class="sc">+</span> meal.cal,</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>      <span class="at">data =</span> survival<span class="sc">::</span>lung)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt; Call:
+#&gt; coxph(formula = Surv(time, status) ~ sex + age + ph.ecog + wt.loss + 
+#&gt;     meal.cal, data = survival::lung)
+#&gt; 
+#&gt;                coef  exp(coef)   se(coef)      z        p
+#&gt; sex      -5.400e-01  5.827e-01  1.988e-01 -2.716 0.006602
+#&gt; age       8.693e-03  1.009e+00  1.124e-02  0.773 0.439303
+#&gt; ph.ecog   5.152e-01  1.674e+00  1.483e-01  3.474 0.000513
+#&gt; wt.loss  -1.117e-02  9.889e-01  7.548e-03 -1.480 0.138841
+#&gt; meal.cal -4.499e-05  1.000e+00  2.512e-04 -0.179 0.857865
+#&gt; 
+#&gt; Likelihood ratio test=22.34  on 5 df, p=0.0004517
+#&gt; n= 170, number of events= 123 
+#&gt;    (58 observations deleted due to missingness)</code></pre>
+</div>
+</div>
+<p>The last line of the output says it: 58 of the 228 patients (25%) were dropped, and 42 of the 165 deaths. That costs precision, and, as the rest of this chapter shows, it can also bias the results. Always check <code>n</code> and <code>number of events</code> against the size of your data.</p>
+<section id="practice-how-much-has-the-model-dropped" class="level3" data-number="11.1.1">
+<h3 data-number="11.1.1" class="anchored" data-anchor-id="practice-how-much-has-the-model-dropped"><span class="header-section-number">11.1.1</span> Practice: how much has the model dropped?</h3>
+<p><em>This is a live exercise: edit the code, click <strong>Run Code</strong>, and your answer is checked automatically. See <a href="01-survival-data.html#sec-live-exercises" class="quarto-xref"><span>Section 1.4.1</span></a> if you haven’t used one before.</em></p>
+<p>Add <code>meal.cal</code> (calories eaten at meals) to a Cox model for the <code>lung</code> data, and find out how many patients the model actually uses. Replace each <code>______</code>, then click <strong>Run Code</strong>.</p>
+<div class="cell" data-layout-align="center" data-setup="true" data-exercise="ex_cc_n">
+<script type="exercise-setup-ex_cc_n-contents">
+eyJhdHRyIjp7ImVkaXQiOnRydWUsImV2YWwiOnRydWUsImV4ZXJjaXNlIjoiZXhfY2NfbiIsInNldHVwIjp0cnVlfSwiY29kZSI6ImxpYnJhcnkoc3Vydml2YWwpXG5sdW5nIDwtIHN1cnZpdmFsOjpsdW5nIn0=
+</script>
+</div>
+<div class="cell" data-layout-align="center" data-exercise="ex_cc_n" data-caption="Practice: how much has the model dropped?">
+<div>
+<div id="webr-2" class="exercise-cell">
+
+</div>
+<script type="webr-2-contents">
+eyJhdHRyIjp7ImNhcHRpb24iOiJQcmFjdGljZTogaG93IG11Y2ggaGFzIHRoZSBtb2RlbCBkcm9wcGVkPyIsImVkaXQiOnRydWUsImV2YWwiOnRydWUsImV4ZXJjaXNlIjoiZXhfY2NfbiJ9LCJjb2RlIjoiIyBNaXNzaW5nIHZhbHVlcyBpbiBlYWNoIGNvbHVtblxuY29sU3Vtcyhpcy5uYShsdW5nKSlcblxuIyBDb3ggbW9kZWwgd2l0aCBtZWFsLmNhbCBhZGRlZFxubSA8LSBjb3hwaChTdXJ2KHRpbWUsIHN0YXR1cykgfiBzZXggKyBhZ2UgKyBwaC5lY29nICsgX19fX19fLCBkYXRhID0gbHVuZylcblxuIyBIb3cgbWFueSBwYXRpZW50cyBkaWQgdGhlIG1vZGVsIHVzZT8gKGxhc3QgbGluZSlcbm0kX19fX19fIn0=
+</script>
+</div>
+</div>
+<div class="hint webr-ojs-exercise exercise-hint d-none" data-exercise="ex_cc_n">
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-3-contents" aria-controls="callout-3" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Hint 1
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-3" class="callout-3-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<p>The variable to add is <code>meal.cal</code>.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="hint webr-ojs-exercise exercise-hint d-none" data-exercise="ex_cc_n">
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-4-contents" aria-controls="callout-4" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Hint 2
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-4" class="callout-4-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<p>The number of patients used is stored in <code>m$n</code>.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="webr-ojs-exercise exercise-solution d-none" data-exercise="ex_cc_n">
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-5-contents" aria-controls="callout-5" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Solution
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-5" class="callout-5-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb5"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">colSums</span>(<span class="fu">is.na</span>(lung))</span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>m <span class="ot">&lt;-</span> <span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> sex <span class="sc">+</span> age <span class="sc">+</span> ph.ecog <span class="sc">+</span> meal.cal, <span class="at">data =</span> lung)</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>m<span class="sc">$</span>n</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p><code>meal.cal</code> is missing for 47 patients, so the model uses only 180 of the 228 patients (and <code>ph.ecog</code> drops one more along the way). Nearly a fifth of the data has gone, from a single variable with gaps.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="cell" data-layout-align="center" data-exercise="ex_cc_n" data-check="true">
+<script type="exercise-check-ex_cc_n-contents">
+eyJhdHRyIjp7ImNoZWNrIjp0cnVlLCJlZGl0Ijp0cnVlLCJldmFsIjp0cnVlLCJleGVyY2lzZSI6ImV4X2NjX24ifSwiY29kZSI6Im0gPC0gLmVudmlyX3Jlc3VsdCRtXG5pZiAoIWluaGVyaXRzKG0sIFwiY294cGhcIikgfHwgIShcIm1lYWwuY2FsXCIgJWluJSBhbGwudmFycyhmb3JtdWxhKG0pKSkpIHtcbiAgbGlzdChjb3JyZWN0ID0gRkFMU0UsIG1lc3NhZ2UgPSBcIkFkZCA8Y29kZT5tZWFsLmNhbDwvY29kZT4gdG8gdGhlIG1vZGVsLlwiKVxufSBlbHNlIGlmICghaXMubnVtZXJpYygucmVzdWx0KSB8fCBsZW5ndGgoLnJlc3VsdCkgIT0gMSB8fCAucmVzdWx0ICE9IG0kbikge1xuICBsaXN0KGNvcnJlY3QgPSBGQUxTRSwgbWVzc2FnZSA9IFwiTWFrZSB0aGUgbGFzdCBsaW5lIDxjb2RlPm0kbjwvY29kZT4sIHRoZSBudW1iZXIgb2YgcGF0aWVudHMgdXNlZC5cIilcbn0gZWxzZSB7XG4gIGxpc3QoY29ycmVjdCA9IFRSVUUsIG1lc3NhZ2UgPSBzcHJpbnRmKFwiQ29ycmVjdCEgVGhlIG1vZGVsIHVzZXMgb25seSAlZCBvZiB0aGUgMjI4IHBhdGllbnRzOiAlZCB3ZXJlIGRyb3BwZWQgYmVjYXVzZSBvZiBtaXNzaW5nIHZhbHVlcy5cIiwgbSRuLCAyMjggLSBtJG4pKVxufSJ9
+</script>
+</div>
+</section>
+</section>
+<section id="when-does-missing-data-cause-bias" class="level2" data-number="11.2">
+<h2 data-number="11.2" class="anchored" data-anchor-id="when-does-missing-data-cause-bias"><span class="header-section-number">11.2</span> When does missing data cause bias?</h2>
+<p>It depends on <strong>why</strong> the values are missing. There are three kinds:</p>
+<table class="caption-top table">
+<colgroup>
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+<col style="width: 25%">
+</colgroup>
+<thead>
+<tr class="header">
+<th>Kind</th>
+<th>Meaning</th>
+<th>Example</th>
+<th>Complete-case analysis</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><strong>MCAR</strong>: missing completely at random</td>
+<td>Whether a value is missing has nothing to do with the patient</td>
+<td>A sample was lost in the post</td>
+<td>Unbiased, but wastes data</td>
+</tr>
+<tr class="even">
+<td><strong>MAR</strong>: missing at random</td>
+<td>Whether a value is missing depends on things you <strong>have</strong> recorded</td>
+<td>BMI is recorded less often for patients who died, and you know who died</td>
+<td>Can be biased. Multiple imputation can fix it</td>
+</tr>
+<tr class="odd">
+<td><strong>MNAR</strong>: missing not at random</td>
+<td>Whether a value is missing depends on the missing value itself, or on things you haven’t recorded</td>
+<td>Heavier patients avoid being weighed</td>
+<td>Biased, and no standard method fully fixes it</td>
+</tr>
+</tbody>
+</table>
+<p>The names are confusing: “missing at random” doesn’t mean the values are missing randomly. It means they’re missing at random <strong>once you take account of</strong> the recorded information.</p>
+<p>For a Cox model, one rule of thumb helps. If whether a covariate is missing depends on the <strong>outcome</strong> (death, or how long patients survived), a complete-case analysis is usually biased. If it depends only on other covariates in the model, a complete-case analysis is usually fine, just less precise.</p>
+</section>
+<section id="a-demonstration-with-a-known-truth" class="level2" data-number="11.3">
+<h2 data-number="11.3" class="anchored" data-anchor-id="a-demonstration-with-a-known-truth"><span class="header-section-number">11.3</span> A demonstration with a known truth</h2>
+<p>We take the simulated cohort from Chapters 5–7 and delete some BMI values. BMI is recorded less often for patients who <strong>died</strong> (perhaps their final records were incomplete) and for <strong>treated</strong> patients (perhaps they were managed at a different clinic):</p>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">set.seed</span>(<span class="dv">1</span>)</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>p_miss <span class="ot">&lt;-</span> <span class="fu">plogis</span>(<span class="sc">-</span><span class="fl">1.5</span> <span class="sc">+</span> <span class="fl">1.5</span> <span class="sc">*</span> cohort<span class="sc">$</span>status <span class="sc">+</span> <span class="dv">1</span> <span class="sc">*</span> cohort<span class="sc">$</span>treated)</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>cohort_miss <span class="ot">&lt;-</span> cohort</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>cohort_miss<span class="sc">$</span>bmi[<span class="fu">runif</span>(<span class="fu">nrow</span>(cohort)) <span class="sc">&lt;</span> p_miss] <span class="ot">&lt;-</span> <span class="cn">NA</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a><span class="fu">mean</span>(<span class="fu">is.na</span>(cohort_miss<span class="sc">$</span>bmi))                              <span class="co"># overall</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt; [1] 0.381</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="fu">tapply</span>(<span class="fu">is.na</span>(cohort_miss<span class="sc">$</span>bmi), cohort_miss<span class="sc">$</span>status, mean)  <span class="co"># by death</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt;         0         1 
+#&gt; 0.2735230 0.6152623</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="fu">tapply</span>(<span class="fu">is.na</span>(cohort_miss<span class="sc">$</span>bmi), cohort_miss<span class="sc">$</span>treated, mean) <span class="co"># by treatment</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt;         0         1 
+#&gt; 0.2971329 0.4946996</code></pre>
+</div>
+</div>
+<p>38% of BMI values are now missing: 62% among patients who died, and 49% among treated patients. This is <strong>MAR</strong>: the chance of being missing depends on things we have recorded.</p>
+<p>Compare the covariate-adjusted Cox model fitted to the full data, before anything was deleted, with the complete-case analysis:</p>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>covs <span class="ot">&lt;-</span> <span class="st">"treated + age + female + diabetes + bmi + smoker"</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>f <span class="ot">&lt;-</span> <span class="fu">as.formula</span>(<span class="fu">paste</span>(<span class="st">"Surv(time, status) ~"</span>, covs))</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>full_fit <span class="ot">&lt;-</span> <span class="fu">coxph</span>(f, <span class="at">data =</span> cohort)        <span class="co"># before deleting anything</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>cc_fit   <span class="ot">&lt;-</span> <span class="fu">coxph</span>(f, <span class="at">data =</span> cohort_miss)   <span class="co"># complete cases only</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a><span class="fu">c</span>(<span class="at">full =</span> <span class="fu">exp</span>(<span class="fu">coef</span>(full_fit))[[<span class="st">"treated"</span>]],</span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">complete_case =</span> <span class="fu">exp</span>(<span class="fu">coef</span>(cc_fit))[[<span class="st">"treated"</span>]])</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt;          full complete_case 
+#&gt;     0.6622329     0.5018850</code></pre>
+</div>
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a>cc_fit<span class="sc">$</span>n</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt; [1] 1238</code></pre>
+</div>
+</div>
+<p>With the full data, the treatment HR is 0.66 (the truth, which we built into the data, is 0.70). The complete-case analysis uses only 1238 patients and gives <strong>0.50</strong>, badly exaggerating the benefit. The patients it keeps are not representative: treated patients who died are the most likely to have been dropped.</p>
+</section>
+<section id="multiple-imputation" class="level2" data-number="11.4">
+<h2 data-number="11.4" class="anchored" data-anchor-id="multiple-imputation"><span class="header-section-number">11.4</span> Multiple imputation</h2>
+<p><strong>Multiple imputation</strong> fills in each missing value with a plausible value, predicted from the patient’s other information, plus some random variation to reflect our uncertainty. It does this several times, making several complete datasets that differ only in the filled-in values. Then:</p>
+<ol type="1">
+<li><strong>Impute:</strong> create <span class="math inline">\(m\)</span> completed datasets (often 10 to 50).</li>
+<li><strong>Analyse:</strong> fit the same model to each one.</li>
+<li><strong>Pool:</strong> combine the <span class="math inline">\(m\)</span> results with <strong>Rubin’s rules</strong>. The pooled estimate is the average of the <span class="math inline">\(m\)</span> estimates. Its standard error combines the uncertainty <em>within</em> each analysis with the variation <em>between</em> the imputed datasets, so the CI honestly reflects that some values were guessed.</li>
+</ol>
+<p>The <strong>mice</strong> package does all three.</p>
+<section id="step-1-include-the-outcome-the-right-way" class="level3" data-number="11.4.1">
+<h3 data-number="11.4.1" class="anchored" data-anchor-id="step-1-include-the-outcome-the-right-way"><span class="header-section-number">11.4.1</span> Step 1: include the outcome, the right way</h3>
+<p>The imputation model must include <strong>everything in the analysis model, including the outcome</strong>. It feels like cheating to use the outcome to fill in a covariate, but leaving it out biases the results towards no effect.</p>
+<p>For survival data, don’t use the raw follow-up time. Instead, include the event indicator (<code>status</code>) and the <strong>Nelson–Aalen estimate</strong> of the cumulative hazard at each patient’s follow-up time <span class="citation" data-cites="white2009">(<a href="references.html#ref-white2009" role="doc-biblioref">White and Royston 2009</a>)</span>. <code>mice</code> calculates it with <code>nelsonaalen()</code>:</p>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb16"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a>cohort_miss<span class="sc">$</span>H <span class="ot">&lt;-</span> <span class="fu">nelsonaalen</span>(cohort_miss, time, status)</span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a><span class="co"># The variables used for imputation: the analysis variables, status and H</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a>imp_data <span class="ot">&lt;-</span> cohort_miss[, <span class="fu">c</span>(<span class="st">"age"</span>, <span class="st">"female"</span>, <span class="st">"diabetes"</span>, <span class="st">"bmi"</span>, <span class="st">"smoker"</span>,</span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a>                            <span class="st">"treated"</span>, <span class="st">"status"</span>, <span class="st">"H"</span>, <span class="st">"time"</span>)]</span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a><span class="co"># Keep time in the data (the Cox model needs it), but don't use it to impute</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a>pred <span class="ot">&lt;-</span> <span class="fu">make.predictorMatrix</span>(imp_data)</span>
+<span id="cb16-9"><a href="#cb16-9" aria-hidden="true" tabindex="-1"></a>pred[, <span class="st">"time"</span>] <span class="ot">&lt;-</span> <span class="dv">0</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+</div>
+</section>
+<section id="step-2-impute" class="level3" data-number="11.4.2">
+<h3 data-number="11.4.2" class="anchored" data-anchor-id="step-2-impute"><span class="header-section-number">11.4.2</span> Step 2: impute</h3>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a>imp <span class="ot">&lt;-</span> <span class="fu">mice</span>(imp_data, <span class="at">m =</span> <span class="dv">10</span>, <span class="at">predictorMatrix =</span> pred,</span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a>            <span class="at">seed =</span> <span class="dv">1</span>, <span class="at">printFlag =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a>imp<span class="sc">$</span>method</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt;      age   female diabetes      bmi   smoker  treated   status        H 
+#&gt;       ""       ""       ""    "pmm"       ""       ""       ""       "" 
+#&gt;     time 
+#&gt;       ""</code></pre>
+</div>
+</div>
+<p><code>imp$method</code> shows how each variable is imputed. Only <code>bmi</code> has missing values, and it uses <code>"pmm"</code> (<em>predictive mean matching</em>): each missing BMI is replaced by an observed BMI from a patient with similar predicted values, so the filled-in values are always realistic. <code>seed</code> makes the result reproducible.</p>
+</section>
+<section id="step-3-analyse-and-pool" class="level3" data-number="11.4.3">
+<h3 data-number="11.4.3" class="anchored" data-anchor-id="step-3-analyse-and-pool"><span class="header-section-number">11.4.3</span> Step 3: analyse and pool</h3>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a>fit_mi <span class="ot">&lt;-</span> <span class="fu">with</span>(imp, <span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated <span class="sc">+</span> age <span class="sc">+</span> female <span class="sc">+</span></span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a>                            diabetes <span class="sc">+</span> bmi <span class="sc">+</span> smoker))</span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a>pooled <span class="ot">&lt;-</span> <span class="fu">summary</span>(<span class="fu">pool</span>(fit_mi), <span class="at">exponentiate =</span> <span class="cn">TRUE</span>, <span class="at">conf.int =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a>pooled[, <span class="fu">c</span>(<span class="st">"term"</span>, <span class="st">"estimate"</span>, <span class="st">"2.5 %"</span>, <span class="st">"97.5 %"</span>)]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt;       term  estimate     2.5 %    97.5 %
+#&gt; 1  treated 0.6714700 0.5627439 0.8012029
+#&gt; 2      age 1.0669140 1.0576171 1.0762925
+#&gt; 3   female 0.8032146 0.6839103 0.9433308
+#&gt; 4 diabetes 1.7038476 1.4257359 2.0362094
+#&gt; 5      bmi 1.0285074 0.9994750 1.0583832
+#&gt; 6   smoker 1.7051351 1.4359722 2.0247506</code></pre>
+</div>
+</div>
+<div class="callout callout-style-default callout-tip no-icon callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>How to read this output
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li><code>with(imp, coxph(...))</code> fits the Cox model to each of the 10 completed datasets.</li>
+<li><code>pool()</code> combines them with Rubin’s rules, and <code>summary(..., exponentiate = TRUE)</code> reports hazard ratios.</li>
+<li><strong>estimate</strong> is the pooled HR, and <strong>2.5 %</strong> and <strong>97.5 %</strong> its 95% CI.</li>
+</ul>
+</div>
+</div>
+<p>The pooled HR for treatment is <strong>0.67</strong> (95% CI 0.56 to 0.80), close to the full-data value of 0.66, using all 2000 patients. Multiple imputation has removed the bias that the complete-case analysis introduced.</p>
+</section>
+<section id="practice-multiple-imputation" class="level3" data-number="11.4.4">
+<h3 data-number="11.4.4" class="anchored" data-anchor-id="practice-multiple-imputation"><span class="header-section-number">11.4.4</span> Practice: multiple imputation</h3>
+<p><em>This is a live exercise: edit the code, click <strong>Run Code</strong>, and your answer is checked automatically. See <a href="01-survival-data.html#sec-live-exercises" class="quarto-xref"><span>Section 1.4.1</span></a> if you haven’t used one before.</em></p>
+<p>The data with missing BMI values are prepared as in this chapter: <code>imp_data</code> (including <code>status</code> and the Nelson–Aalen estimate <code>H</code>) and the predictor matrix <code>pred</code>. Impute <strong>5</strong> datasets, fit the Cox model to each, and pool the results. The first run downloads the mice package, which can take a minute. Replace each <code>______</code>, then click <strong>Run Code</strong>.</p>
+<div class="cell" data-layout-align="center" data-setup="true" data-exercise="ex_mi">
+<script type="exercise-setup-ex_mi-contents">
+eyJhdHRyIjp7ImVkaXQiOnRydWUsImV2YWwiOnRydWUsImV4ZXJjaXNlIjoiZXhfbWkiLCJzZXR1cCI6dHJ1ZX0sImNvZGUiOiJpZiAoIXJlcXVpcmVOYW1lc3BhY2UoXCJtaWNlXCIsIHF1aWV0bHkgPSBUUlVFKSkgaW5zdGFsbC5wYWNrYWdlcyhcIm1pY2VcIiwgcXVpZXQgPSBUUlVFKVxubGlicmFyeShzdXJ2aXZhbClcbmxpYnJhcnkobWljZSlcbnNpbXVsYXRlX2NvaG9ydCA8LSBmdW5jdGlvbihuID0gMjAwMCwgaHJfdHJlYXQgPSAwLjcwLCBzZWVkID0gMjAyNikge1xuICBzZXQuc2VlZChzZWVkKVxuICBhZ2UgICAgICA8LSByb3VuZChwbWluKHBtYXgocm5vcm0obiwgNjUsIDEwKSwgMzUpLCA5NSkpXG4gIGZlbWFsZSAgIDwtIHJiaW5vbShuLCAxLCAwLjQ1KVxuICBkaWFiZXRlcyA8LSByYmlub20obiwgMSwgcGxvZ2lzKC0xLjQgKyAwLjA0ICogKGFnZSAtIDY1KSkpXG4gIGJtaSAgICAgIDwtIHJvdW5kKHJub3JtKG4sIDI4LCA0LjUpLCAxKVxuICBzbW9rZXIgICA8LSByYmlub20obiwgMSwgMC4yNSlcbiAgbHBfdHJlYXQgPC0gLTAuNiArIDAuMDYgKiAoYWdlIC0gNjUpICsgMS4wICogZGlhYmV0ZXMgKyAwLjA4ICogKGJtaSAtIDI4KSAtXG4gICAgMC4zICogZmVtYWxlICsgMC40ICogc21va2VyXG4gIHRyZWF0ZWQgPC0gcmJpbm9tKG4sIDEsIHBsb2dpcyhscF90cmVhdCkpXG4gIGxwX2RlYXRoIDwtIGxvZyhocl90cmVhdCkgKiB0cmVhdGVkICsgMC4wNiAqIChhZ2UgLSA2NSkgKyAwLjYgKiBkaWFiZXRlcyArXG4gICAgMC4wMyAqIChibWkgLSAyOCkgLSAwLjI1ICogZmVtYWxlICsgMC41NSAqIHNtb2tlclxuICBzaGFwZSAgPC0gMS4yXG4gIGxhbWJkYSA8LSAwLjA1ICAgICAgICAgICAgICAgICAgICAgICAjIGJhc2VsaW5lIGhhemFyZCBzY2FsZSAocGVyIHllYXIpXG4gIHRfZXZlbnQgPC0gKC1sb2cocnVuaWYobikpIC8gKGxhbWJkYSAqIGV4cChscF9kZWF0aCkpKV4oMSAvIHNoYXBlKVxuICB0X2FkbWluICAgPC0gcnVuaWYobiwgMywgOCkgICAgICAgICAgIyBzdHVkeSBlbmRzIDMtOCB5ZWFycyBhZnRlciBlbnRyeVxuICB0X2Ryb3BvdXQgPC0gcmV4cChuLCByYXRlID0gMC4wNClcbiAgdF9jZW5zICAgIDwtIHBtaW4odF9hZG1pbiwgdF9kcm9wb3V0KVxuICB0aW1lICAgPC0gcG1pbih0X2V2ZW50LCB0X2NlbnMpXG4gIHN0YXR1cyA8LSBhcy5pbnRlZ2VyKHRfZXZlbnQgPD0gdF9jZW5zKVxuICBkYXRhLmZyYW1lKFxuICAgIGlkICAgICAgID0gc2VxX2xlbihuKSxcbiAgICBhZ2UsIGZlbWFsZSwgZGlhYmV0ZXMsIGJtaSwgc21va2VyLFxuICAgIHRyZWF0ZWQsXG4gICAgdGltZSAgICAgPSByb3VuZCh0aW1lLCAzKSxcbiAgICBzdGF0dXNcbiAgKVxufVxuY29ob3J0IDwtIHNpbXVsYXRlX2NvaG9ydChuID0gMjAwMCwgc2VlZCA9IDIwMjYpXG5zZXQuc2VlZCgxKVxucF9taXNzIDwtIHBsb2dpcygtMS41ICsgMS41ICogY29ob3J0JHN0YXR1cyArIDEgKiBjb2hvcnQkdHJlYXRlZClcbmNvaG9ydF9taXNzIDwtIGNvaG9ydFxuY29ob3J0X21pc3MkYm1pW3J1bmlmKG5yb3coY29ob3J0KSkgPCBwX21pc3NdIDwtIE5BXG5jb2hvcnRfbWlzcyRIIDwtIG5lbHNvbmFhbGVuKGNvaG9ydF9taXNzLCB0aW1lLCBzdGF0dXMpXG5pbXBfZGF0YSA8LSBjb2hvcnRfbWlzc1ssIGMoXCJhZ2VcIiwgXCJmZW1hbGVcIiwgXCJkaWFiZXRlc1wiLCBcImJtaVwiLCBcInNtb2tlclwiLFxuICAgICAgICAgICAgICAgICAgICAgICAgICAgIFwidHJlYXRlZFwiLCBcInN0YXR1c1wiLCBcIkhcIiwgXCJ0aW1lXCIpXVxucHJlZCA8LSBtYWtlLnByZWRpY3Rvck1hdHJpeChpbXBfZGF0YSlcbnByZWRbLCBcInRpbWVcIl0gPC0gMFxucm0ocF9taXNzKSJ9
+</script>
+</div>
+<div class="cell" data-layout-align="center" data-exercise="ex_mi" data-caption="Practice: multiple imputation">
+<div>
+<div id="webr-5" class="exercise-cell">
+
+</div>
+<script type="webr-5-contents">
+eyJhdHRyIjp7ImNhcHRpb24iOiJQcmFjdGljZTogbXVsdGlwbGUgaW1wdXRhdGlvbiIsImVkaXQiOnRydWUsImV2YWwiOnRydWUsImV4ZXJjaXNlIjoiZXhfbWkifSwiY29kZSI6ImltcCA8LSBtaWNlKGltcF9kYXRhLCBtID0gX19fX19fLCBwcmVkaWN0b3JNYXRyaXggPSBwcmVkLFxuICAgICAgICAgICAgc2VlZCA9IDEsIHByaW50RmxhZyA9IEZBTFNFKVxuXG5maXRfbWkgPC0gd2l0aChpbXAsIGNveHBoKFN1cnYodGltZSwgc3RhdHVzKSB+IHRyZWF0ZWQgKyBhZ2UgKyBmZW1hbGUgK1xuICAgICAgICAgICAgICAgICAgICAgICAgICAgIGRpYWJldGVzICsgYm1pICsgc21va2VyKSlcblxuc3VtbWFyeShfX19fX18oZml0X21pKSwgZXhwb25lbnRpYXRlID0gVFJVRSwgY29uZi5pbnQgPSBUUlVFKSJ9
+</script>
+</div>
+</div>
+<div class="hint webr-ojs-exercise exercise-hint d-none" data-exercise="ex_mi">
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-7-contents" aria-controls="callout-7" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Hint 1
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-7" class="callout-7-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<p><code>m = 5</code> creates 5 imputed datasets.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="hint webr-ojs-exercise exercise-hint d-none" data-exercise="ex_mi">
+<div class="callout callout-style-default callout-note callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-8-contents" aria-controls="callout-8" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Note</span>Hint 2
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-8" class="callout-8-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<p>Rubin’s rules are applied by <code>pool()</code>.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="webr-ojs-exercise exercise-solution d-none" data-exercise="ex_mi">
+<div class="callout callout-style-default callout-tip callout-titled">
+<div class="callout-header d-flex align-content-center" data-bs-toggle="collapse" data-bs-target=".callout-9-contents" aria-controls="callout-9" aria-expanded="true" aria-label="Toggle callout">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>Solution
+</div>
+<div class="callout-btn-toggle d-inline-block border-0 py-1 ps-1 pe-0 float-end"><i class="callout-toggle"></i></div>
+</div>
+<div id="callout-9" class="callout-9-contents callout-collapse collapse show">
+<div class="callout-body-container callout-body">
+<div class="code-copy-outer-scaffold"><div class="sourceCode" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a>imp <span class="ot">&lt;-</span> <span class="fu">mice</span>(imp_data, <span class="at">m =</span> <span class="dv">5</span>, <span class="at">predictorMatrix =</span> pred,</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>            <span class="at">seed =</span> <span class="dv">1</span>, <span class="at">printFlag =</span> <span class="cn">FALSE</span>)</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>fit_mi <span class="ot">&lt;-</span> <span class="fu">with</span>(imp, <span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated <span class="sc">+</span> age <span class="sc">+</span> female <span class="sc">+</span></span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>                            diabetes <span class="sc">+</span> bmi <span class="sc">+</span> smoker))</span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(<span class="fu">pool</span>(fit_mi), <span class="at">exponentiate =</span> <span class="cn">TRUE</span>, <span class="at">conf.int =</span> <span class="cn">TRUE</span>)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<p>With 5 imputations, the pooled HR for treatment is about 0.68, much closer to the full-data value (0.66) than the complete-case estimate (0.50). With more imputations the result would be a little more stable.</p>
+</div>
+</div>
+</div>
+</div>
+<div class="cell" data-layout-align="center" data-exercise="ex_mi" data-check="true">
+<script type="exercise-check-ex_mi-contents">
+eyJhdHRyIjp7ImNoZWNrIjp0cnVlLCJlZGl0Ijp0cnVlLCJldmFsIjp0cnVlLCJleGVyY2lzZSI6ImV4X21pIn0sImNvZGUiOiJyIDwtIC5yZXN1bHRcbmltcCA8LSAuZW52aXJfcmVzdWx0JGltcFxuaWYgKCFpbmhlcml0cyhpbXAsIFwibWlkc1wiKSB8fCBpbXAkbSAhPSA1KSB7XG4gIGxpc3QoY29ycmVjdCA9IEZBTFNFLCBtZXNzYWdlID0gXCJDcmVhdGUgNSBpbXB1dGVkIGRhdGFzZXRzOiA8Y29kZT5tID0gNTwvY29kZT4uXCIpXG59IGVsc2UgaWYgKCFpbmhlcml0cyhyLCBcIm1pcG8uc3VtbWFyeVwiKSB8fCAhKFwidHJlYXRlZFwiICVpbiUgYXMuY2hhcmFjdGVyKHIkdGVybSkpIHx8IHIkZXN0aW1hdGVbYXMuY2hhcmFjdGVyKHIkdGVybSkgPT0gXCJ0cmVhdGVkXCJdIDwgMCkge1xuICBsaXN0KGNvcnJlY3QgPSBGQUxTRSwgbWVzc2FnZSA9IFwiTWFrZSB0aGUgbGFzdCBsaW5lIDxjb2RlPnN1bW1hcnkocG9vbChmaXRfbWkpLCBleHBvbmVudGlhdGUgPSBUUlVFLCBjb25mLmludCA9IFRSVUUpPC9jb2RlPi5cIilcbn0gZWxzZSB7XG4gIGVzdCA8LSByJGVzdGltYXRlW2FzLmNoYXJhY3RlcihyJHRlcm0pID09IFwidHJlYXRlZFwiXVxuICBsaXN0KGNvcnJlY3QgPSBUUlVFLCBtZXNzYWdlID0gc3ByaW50ZihcIkNvcnJlY3QhIFBvb2xlZCBIUiBmb3IgdHJlYXRtZW50ID0gJS4yZiwgY2xvc2UgdG8gdGhlIGZ1bGwtZGF0YSB2YWx1ZSBvZiAwLjY2LiBUaGUgY29tcGxldGUtY2FzZSBhbmFseXNpcyBnYXZlIDAuNTAuXCIsIGVzdCkpXG59In0=
+</script>
+</div>
+</section>
+</section>
+<section id="missing-data-and-propensity-score-matching" class="level2" data-number="11.5">
+<h2 data-number="11.5" class="anchored" data-anchor-id="missing-data-and-propensity-score-matching"><span class="header-section-number">11.5</span> Missing data and propensity score matching</h2>
+<p>Missing confounders cause the same problem for matching: <code>matchit()</code> needs complete data, so the complete cases are matched, with the same bias:</p>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb22"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="co"># matchit() needs complete data, so keep only the complete cases</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>cc_data <span class="ot">&lt;-</span> <span class="fu">na.omit</span>(cohort_miss[, <span class="fu">c</span>(<span class="st">"age"</span>, <span class="st">"female"</span>, <span class="st">"diabetes"</span>, <span class="st">"bmi"</span>,</span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a>                                   <span class="st">"smoker"</span>, <span class="st">"treated"</span>, <span class="st">"time"</span>, <span class="st">"status"</span>)])</span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>m_cc <span class="ot">&lt;-</span> <span class="fu">matchit</span>(treated <span class="sc">~</span> age <span class="sc">+</span> female <span class="sc">+</span> diabetes <span class="sc">+</span> bmi <span class="sc">+</span> smoker,</span>
+<span id="cb22-6"><a href="#cb22-6" aria-hidden="true" tabindex="-1"></a>                <span class="at">data =</span> cc_data, <span class="at">method =</span> <span class="st">"nearest"</span>,</span>
+<span id="cb22-7"><a href="#cb22-7" aria-hidden="true" tabindex="-1"></a>                <span class="at">link =</span> <span class="st">"linear.logit"</span>, <span class="at">caliper =</span> <span class="fl">0.2</span>)</span>
+<span id="cb22-8"><a href="#cb22-8" aria-hidden="true" tabindex="-1"></a><span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated, <span class="at">data =</span> <span class="fu">match.data</span>(m_cc),</span>
+<span id="cb22-9"><a href="#cb22-9" aria-hidden="true" tabindex="-1"></a>      <span class="at">robust =</span> <span class="cn">TRUE</span>, <span class="at">cluster =</span> subclass) <span class="sc">|&gt;</span></span>
+<span id="cb22-10"><a href="#cb22-10" aria-hidden="true" tabindex="-1"></a>  broom<span class="sc">::</span><span class="fu">tidy</span>(<span class="at">exponentiate =</span> <span class="cn">TRUE</span>, <span class="at">conf.int =</span> <span class="cn">TRUE</span>) <span class="sc">|&gt;</span></span>
+<span id="cb22-11"><a href="#cb22-11" aria-hidden="true" tabindex="-1"></a>  <span class="fu">select</span>(term, estimate, conf.low, conf.high)</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt; # A tibble: 1 x 4
+#&gt;   term    estimate conf.low conf.high
+#&gt;   &lt;chr&gt;      &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;
+#&gt; 1 treated    0.562    0.415     0.760</code></pre>
+</div>
+</div>
+<p>The <strong>MatchThem</strong> package matches <em>within</em> each imputed dataset, then pools the results <span class="citation" data-cites="pishgar2021">(<a href="references.html#ref-pishgar2021" role="doc-biblioref">Pishgar et al. 2021</a>)</span>. It works just like <code>matchit()</code>, with <code>datasets = imp</code> in place of <code>data</code>:</p>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb24"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a>mt <span class="ot">&lt;-</span> <span class="fu">matchthem</span>(treated <span class="sc">~</span> age <span class="sc">+</span> female <span class="sc">+</span> diabetes <span class="sc">+</span> bmi <span class="sc">+</span> smoker,</span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a>                <span class="at">datasets =</span> imp, <span class="at">approach =</span> <span class="st">"within"</span>,</span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a>                <span class="at">method =</span> <span class="st">"nearest"</span>, <span class="at">link =</span> <span class="st">"linear.logit"</span>, <span class="at">caliper =</span> <span class="fl">0.2</span>)</span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a><span class="co"># Balance, summarised across the 10 imputed datasets</span></span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a><span class="fu">bal.tab</span>(mt, <span class="at">binary =</span> <span class="st">"std"</span>, <span class="at">thresholds =</span> <span class="fu">c</span>(<span class="at">m =</span> <span class="fl">0.1</span>))</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt; Balance summary across all imputations
+#&gt;              Type Min.Diff.Adj Mean.Diff.Adj Max.Diff.Adj
+#&gt; distance Distance       0.0754        0.0843       0.0907
+#&gt; age       Contin.       0.0325        0.0510       0.0657
+#&gt; female     Binary      -0.0377        0.0014       0.0347
+#&gt; diabetes   Binary       0.0299        0.0551       0.0857
+#&gt; bmi       Contin.       0.0096        0.0371       0.0598
+#&gt; smoker     Binary      -0.0339        0.0063       0.0285
+#&gt; 
+#&gt; Average sample sizes across imputations
+#&gt;              0   1
+#&gt; All       1151 849
+#&gt; Matched    707 707
+#&gt; Unmatched  444 142</code></pre>
+</div>
+</div>
+<div class="cell" data-layout-align="center">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code" id="cb26"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>fit_mt <span class="ot">&lt;-</span> <span class="fu">with</span>(mt, <span class="fu">coxph</span>(<span class="fu">Surv</span>(time, status) <span class="sc">~</span> treated,</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>                         <span class="at">weights =</span> weights, <span class="at">robust =</span> <span class="cn">TRUE</span>,</span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>                         <span class="at">cluster =</span> subclass))</span>
+<span id="cb26-4"><a href="#cb26-4" aria-hidden="true" tabindex="-1"></a><span class="fu">summary</span>(<span class="fu">pool</span>(fit_mt), <span class="at">exponentiate =</span> <span class="cn">TRUE</span>, <span class="at">conf.int =</span> <span class="cn">TRUE</span>)[</span>
+<span id="cb26-5"><a href="#cb26-5" aria-hidden="true" tabindex="-1"></a>  , <span class="fu">c</span>(<span class="st">"term"</span>, <span class="st">"estimate"</span>, <span class="st">"2.5 %"</span>, <span class="st">"97.5 %"</span>)]</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>#&gt;      term  estimate     2.5 %    97.5 %
+#&gt; 1 treated 0.7470145 0.6162722 0.9054938</code></pre>
+</div>
+</div>
+<p>The complete-case matched HR is 0.56. After multiple imputation and matching within each dataset, it’s <strong>0.75</strong> (95% CI 0.62 to 0.91), close to the true marginal HR of about 0.73 from Chapter 7.</p>
+</section>
+<section id="practical-advice" class="level2" data-number="11.6">
+<h2 data-number="11.6" class="anchored" data-anchor-id="practical-advice"><span class="header-section-number">11.6</span> Practical advice</h2>
+<ul>
+<li><strong>Look before you analyse.</strong> Count the missing values in each variable, and compare patients with and without missing data, as for loss to follow-up in <a href="04-traps.html#sec-informative" class="quarto-xref"><span>Section 4.1</span></a>.</li>
+<li><strong>How many imputations?</strong> A common rule of thumb is at least as many as the percentage of incomplete cases (here 38%, so about 40). Ten is fine for learning. Increase <span class="math inline">\(m\)</span> until the results stop changing.</li>
+<li><strong>What to include.</strong> Every variable in the analysis model, the outcome (<code>status</code> and the Nelson–Aalen estimate), and any other variables that predict missingness or the missing values.</li>
+<li><strong>Report it.</strong> Say how much was missing, how you imputed it (method, variables, <span class="math inline">\(m\)</span>), and compare with the complete-case analysis.</li>
+<li><strong>MNAR can’t be fixed by imputation.</strong> If values are probably missing for reasons you didn’t record, say so, and consider a sensitivity analysis that shifts the imputed values up or down.</li>
+<li><strong>When is complete-case analysis fine?</strong> When very little is missing (a few percent), or when missingness depends only on covariates in the model and not on the outcome.</li>
+</ul>
+</section>
+<section id="quick-quiz" class="level2 unnumbered">
+<h2 class="unnumbered anchored" data-anchor-id="quick-quiz">Quick quiz</h2>
+<p>Choose an answer to each question. You’ll get instant feedback and can change your answer as often as you like.</p>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb28" data-startfrom="471" data-source-offset="0"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 470;"><span id="cb28-471"><a href="#cb28-471" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> {quiz} <span class="im">from</span> <span class="st">"./js/survtools.js"</span></span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+<div id="ojs-cell-1" data-nodetype="declaration">
+
+</div>
+</div>
+</div>
+<div class="cell">
+<div class="code-copy-outer-scaffold"><div class="sourceCode cell-code hidden" id="cb29" data-startfrom="476" data-source-offset="0"><pre class="sourceCode js code-with-copy"><code class="sourceCode javascript" style="counter-reset: source-line 475;"><span id="cb29-476"><a href="#cb29-476" aria-hidden="true" tabindex="-1"></a><span class="fu">quiz</span>([</span>
+<span id="cb29-477"><a href="#cb29-477" aria-hidden="true" tabindex="-1"></a> {</span>
+<span id="cb29-478"><a href="#cb29-478" aria-hidden="true" tabindex="-1"></a>  <span class="st">"q"</span><span class="op">:</span> <span class="st">"A blood test result is missing more often for patients who later died. Death is recorded for everyone. What kind of missingness is this?"</span><span class="op">,</span></span>
+<span id="cb29-479"><a href="#cb29-479" aria-hidden="true" tabindex="-1"></a>  <span class="st">"options"</span><span class="op">:</span> [<span class="st">"MCAR"</span><span class="op">,</span> <span class="st">"MAR"</span><span class="op">,</span> <span class="st">"MNAR"</span><span class="op">,</span> <span class="st">"It isn't missing data"</span>]<span class="op">,</span></span>
+<span id="cb29-480"><a href="#cb29-480" aria-hidden="true" tabindex="-1"></a>  <span class="st">"answer"</span><span class="op">:</span> <span class="dv">1</span><span class="op">,</span></span>
+<span id="cb29-481"><a href="#cb29-481" aria-hidden="true" tabindex="-1"></a>  <span class="st">"why"</span><span class="op">:</span> <span class="st">"Whether the value is missing depends on something that is recorded (death), so it's missing at random given the data. A complete-case Cox analysis is likely to be biased; multiple imputation including the outcome can fix it."</span><span class="op">,</span></span>
+<span id="cb29-482"><a href="#cb29-482" aria-hidden="true" tabindex="-1"></a>  <span class="st">"hints"</span><span class="op">:</span> [</span>
+<span id="cb29-483"><a href="#cb29-483" aria-hidden="true" tabindex="-1"></a>   <span class="st">"MCAR would mean missingness has nothing to do with the patient."</span><span class="op">,</span></span>
+<span id="cb29-484"><a href="#cb29-484" aria-hidden="true" tabindex="-1"></a>   <span class="st">""</span><span class="op">,</span></span>
+<span id="cb29-485"><a href="#cb29-485" aria-hidden="true" tabindex="-1"></a>   <span class="st">"MNAR would mean it depends on the missing value itself, or on something not recorded."</span><span class="op">,</span></span>
+<span id="cb29-486"><a href="#cb29-486" aria-hidden="true" tabindex="-1"></a>   <span class="st">"The test result is unknown for these patients."</span></span>
+<span id="cb29-487"><a href="#cb29-487" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb29-488"><a href="#cb29-488" aria-hidden="true" tabindex="-1"></a> }<span class="op">,</span></span>
+<span id="cb29-489"><a href="#cb29-489" aria-hidden="true" tabindex="-1"></a> {</span>
+<span id="cb29-490"><a href="#cb29-490" aria-hidden="true" tabindex="-1"></a>  <span class="st">"q"</span><span class="op">:</span> <span class="st">"Why should the survival outcome be included when imputing a missing covariate?"</span><span class="op">,</span></span>
+<span id="cb29-491"><a href="#cb29-491" aria-hidden="true" tabindex="-1"></a>  <span class="st">"options"</span><span class="op">:</span> [</span>
+<span id="cb29-492"><a href="#cb29-492" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Leaving it out biases the covariate's estimated effect towards no effect"</span><span class="op">,</span></span>
+<span id="cb29-493"><a href="#cb29-493" aria-hidden="true" tabindex="-1"></a>   <span class="st">"It makes the imputation run faster"</span><span class="op">,</span></span>
+<span id="cb29-494"><a href="#cb29-494" aria-hidden="true" tabindex="-1"></a>   <span class="st">"It isn't needed: the outcome should never be used"</span><span class="op">,</span></span>
+<span id="cb29-495"><a href="#cb29-495" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Because &lt;code&gt;mice()&lt;/code&gt; fails without it"</span></span>
+<span id="cb29-496"><a href="#cb29-496" aria-hidden="true" tabindex="-1"></a>  ]<span class="op">,</span></span>
+<span id="cb29-497"><a href="#cb29-497" aria-hidden="true" tabindex="-1"></a>  <span class="st">"answer"</span><span class="op">:</span> <span class="dv">0</span><span class="op">,</span></span>
+<span id="cb29-498"><a href="#cb29-498" aria-hidden="true" tabindex="-1"></a>  <span class="st">"why"</span><span class="op">:</span> <span class="st">"If the imputation model ignores the outcome, the imputed values have no relationship with it, which dilutes the association. Include status and the Nelson–Aalen estimate."</span><span class="op">,</span></span>
+<span id="cb29-499"><a href="#cb29-499" aria-hidden="true" tabindex="-1"></a>  <span class="st">"hints"</span><span class="op">:</span> [</span>
+<span id="cb29-500"><a href="#cb29-500" aria-hidden="true" tabindex="-1"></a>   <span class="st">""</span><span class="op">,</span></span>
+<span id="cb29-501"><a href="#cb29-501" aria-hidden="true" tabindex="-1"></a>   <span class="st">"It's about bias, not speed."</span><span class="op">,</span></span>
+<span id="cb29-502"><a href="#cb29-502" aria-hidden="true" tabindex="-1"></a>   <span class="st">"It feels like cheating, but it's needed to avoid bias."</span><span class="op">,</span></span>
+<span id="cb29-503"><a href="#cb29-503" aria-hidden="true" tabindex="-1"></a>   <span class="st">"&lt;code&gt;mice()&lt;/code&gt; runs either way."</span></span>
+<span id="cb29-504"><a href="#cb29-504" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb29-505"><a href="#cb29-505" aria-hidden="true" tabindex="-1"></a> }<span class="op">,</span></span>
+<span id="cb29-506"><a href="#cb29-506" aria-hidden="true" tabindex="-1"></a> {</span>
+<span id="cb29-507"><a href="#cb29-507" aria-hidden="true" tabindex="-1"></a>  <span class="st">"q"</span><span class="op">:</span> <span class="st">"What does &lt;code&gt;pool()&lt;/code&gt; do?"</span><span class="op">,</span></span>
+<span id="cb29-508"><a href="#cb29-508" aria-hidden="true" tabindex="-1"></a>  <span class="st">"options"</span><span class="op">:</span> [</span>
+<span id="cb29-509"><a href="#cb29-509" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Combines the results from the imputed datasets using Rubin's rules"</span><span class="op">,</span></span>
+<span id="cb29-510"><a href="#cb29-510" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Stacks the imputed datasets into one big dataset and fits a single model"</span><span class="op">,</span></span>
+<span id="cb29-511"><a href="#cb29-511" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Picks the imputed dataset with the best fit"</span><span class="op">,</span></span>
+<span id="cb29-512"><a href="#cb29-512" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Fills in the missing values"</span></span>
+<span id="cb29-513"><a href="#cb29-513" aria-hidden="true" tabindex="-1"></a>  ]<span class="op">,</span></span>
+<span id="cb29-514"><a href="#cb29-514" aria-hidden="true" tabindex="-1"></a>  <span class="st">"answer"</span><span class="op">:</span> <span class="dv">0</span><span class="op">,</span></span>
+<span id="cb29-515"><a href="#cb29-515" aria-hidden="true" tabindex="-1"></a>  <span class="st">"why"</span><span class="op">:</span> <span class="st">"pool() averages the estimates and combines the within- and between-imputation variation into the standard error."</span><span class="op">,</span></span>
+<span id="cb29-516"><a href="#cb29-516" aria-hidden="true" tabindex="-1"></a>  <span class="st">"hints"</span><span class="op">:</span> [</span>
+<span id="cb29-517"><a href="#cb29-517" aria-hidden="true" tabindex="-1"></a>   <span class="st">""</span><span class="op">,</span></span>
+<span id="cb29-518"><a href="#cb29-518" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Stacking would make the CI far too narrow."</span><span class="op">,</span></span>
+<span id="cb29-519"><a href="#cb29-519" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Every imputed dataset is used."</span><span class="op">,</span></span>
+<span id="cb29-520"><a href="#cb29-520" aria-hidden="true" tabindex="-1"></a>   <span class="st">"That's what &lt;code&gt;mice()&lt;/code&gt; does."</span></span>
+<span id="cb29-521"><a href="#cb29-521" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb29-522"><a href="#cb29-522" aria-hidden="true" tabindex="-1"></a> }<span class="op">,</span></span>
+<span id="cb29-523"><a href="#cb29-523" aria-hidden="true" tabindex="-1"></a> {</span>
+<span id="cb29-524"><a href="#cb29-524" aria-hidden="true" tabindex="-1"></a>  <span class="st">"q"</span><span class="op">:</span> <span class="st">"A confounder is missing for 30% of patients. You want to use propensity score matching. What is a good approach?"</span><span class="op">,</span></span>
+<span id="cb29-525"><a href="#cb29-525" aria-hidden="true" tabindex="-1"></a>  <span class="st">"options"</span><span class="op">:</span> [</span>
+<span id="cb29-526"><a href="#cb29-526" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Multiply impute, then match within each imputed dataset and pool (e.g. MatchThem)"</span><span class="op">,</span></span>
+<span id="cb29-527"><a href="#cb29-527" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Match the complete cases only"</span><span class="op">,</span></span>
+<span id="cb29-528"><a href="#cb29-528" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Replace each missing value with the mean"</span><span class="op">,</span></span>
+<span id="cb29-529"><a href="#cb29-529" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Leave the confounder out of the propensity score model"</span></span>
+<span id="cb29-530"><a href="#cb29-530" aria-hidden="true" tabindex="-1"></a>  ]<span class="op">,</span></span>
+<span id="cb29-531"><a href="#cb29-531" aria-hidden="true" tabindex="-1"></a>  <span class="st">"answer"</span><span class="op">:</span> <span class="dv">0</span><span class="op">,</span></span>
+<span id="cb29-532"><a href="#cb29-532" aria-hidden="true" tabindex="-1"></a>  <span class="st">"why"</span><span class="op">:</span> <span class="st">"MatchThem matches within each imputed dataset and pools the effect estimates. Complete cases can be biased, mean imputation understates uncertainty, and leaving out a confounder leaves confounding."</span><span class="op">,</span></span>
+<span id="cb29-533"><a href="#cb29-533" aria-hidden="true" tabindex="-1"></a>  <span class="st">"hints"</span><span class="op">:</span> [</span>
+<span id="cb29-534"><a href="#cb29-534" aria-hidden="true" tabindex="-1"></a>   <span class="st">""</span><span class="op">,</span></span>
+<span id="cb29-535"><a href="#cb29-535" aria-hidden="true" tabindex="-1"></a>   <span class="st">"That can be biased, as in this chapter's example (HR 0.56 instead of about 0.73)."</span><span class="op">,</span></span>
+<span id="cb29-536"><a href="#cb29-536" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Single mean imputation ignores the uncertainty and can distort relationships."</span><span class="op">,</span></span>
+<span id="cb29-537"><a href="#cb29-537" aria-hidden="true" tabindex="-1"></a>   <span class="st">"Then nothing balances that confounder."</span></span>
+<span id="cb29-538"><a href="#cb29-538" aria-hidden="true" tabindex="-1"></a>  ]</span>
+<span id="cb29-539"><a href="#cb29-539" aria-hidden="true" tabindex="-1"></a> }</span>
+<span id="cb29-540"><a href="#cb29-540" aria-hidden="true" tabindex="-1"></a>])</span></code></pre></div><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></div>
+<div class="cell-output cell-output-display">
+<div id="ojs-cell-2" data-nodetype="expression">
+
+</div>
+</div>
+</div>
+</section>
+<section id="summary" class="level2" data-number="11.7">
+<h2 data-number="11.7" class="anchored" data-anchor-id="summary"><span class="header-section-number">11.7</span> Summary</h2>
+<div class="callout callout-style-default callout-important no-icon callout-titled">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon no-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Important</span>Key points
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<ul>
+<li>R drops incomplete rows by default (<strong>complete-case analysis</strong>). Always check <code>n</code> and <code>number of events</code>.</li>
+<li>Missing data are <strong>MCAR</strong>, <strong>MAR</strong> or <strong>MNAR</strong>. If missingness depends on the outcome, complete-case analysis is usually biased.</li>
+<li><strong>Multiple imputation</strong> fills in the gaps several times, analyses each completed dataset, and <strong>pools</strong> the results with Rubin’s rules (<code>mice()</code>, <code>with()</code>, <code>pool()</code>).</li>
+<li>Include the <strong>outcome</strong> in the imputation model: <code>status</code> and the <strong>Nelson–Aalen</strong> cumulative hazard (<code>nelsonaalen()</code>), not the raw time.</li>
+<li>With propensity score matching, impute first, then match <strong>within</strong> each imputed dataset and pool (<strong>MatchThem</strong>).</li>
+<li>Imputation can’t fix MNAR. Report how much was missing and what you did, and compare with the complete-case analysis.</li>
+</ul>
+</div>
+</div>
+<p><strong>Answering the question.</strong> By default, R analyses only the complete cases. When missingness depends on the outcome, that can be badly biased: in our example, the treatment HR was 0.50 instead of 0.66. Multiple imputation, including the outcome correctly, gave 0.67, and the same idea combined with matching gave 0.75 against a true marginal value of about 0.73.</p>
+</section>
+<section id="further-reading" class="level2" data-number="11.8">
+<h2 data-number="11.8" class="anchored" data-anchor-id="further-reading"><span class="header-section-number">11.8</span> Further reading</h2>
+<p>All of these are free to read online unless marked otherwise. The whole book’s reading list, grouped by topic, is in <a href="a3-further-reading.html" class="quarto-xref"><span>Appendix C</span></a>.</p>
+<ul>
+<li><span class="citation" data-cites="sterne2009"><span class="nocase">Sterne et al.</span> (<a href="references.html#ref-sterne2009" role="doc-biblioref">2009</a>)</span>: <strong>Start here.</strong> A readable guide to multiple imputation, and how it can go wrong.</li>
+<li><span class="citation" data-cites="white2009">White and Royston (<a href="references.html#ref-white2009" role="doc-biblioref">2009</a>)</span>: How to include a survival outcome when imputing covariates for a Cox model (the Nelson–Aalen approach). (May need institutional access.)</li>
+<li><span class="citation" data-cites="vanbuuren2018">Buuren (<a href="references.html#ref-vanbuuren2018" role="doc-biblioref">2018</a>)</span>: A free online book by the author of mice, from the basics to advanced topics.</li>
+<li><span class="citation" data-cites="pishgar2021">Pishgar et al. (<a href="references.html#ref-pishgar2021" role="doc-biblioref">2021</a>)</span>: The MatchThem package, for matching and weighting after multiple imputation.</li>
+</ul>
+
+
+<script type="webr-data">
+eyJvcHRpb25zIjp7ImJhc2VVcmwiOiJodHRwczovL3dlYnIuci13YXNtLm9yZy92MC42LjAvIn0sInBhY2thZ2VzIjp7InBrZ3MiOlsiZXZhbHVhdGUiLCJrbml0ciIsImh0bWx0b29scyIsInN1cnZpdmFsIl0sInJlcG9zIjpbImh0dHBzOi8vcmVwby5yLXdhc20ub3JnIiwiaHR0cHM6Ly9jcmFuLnItdW5pdmVyc2UuZGV2Il19LCJyZW5kZXJfZGYiOiJkZWZhdWx0In0=
+</script>
+<script type="ojs-module-contents">
+eyJjb250ZW50cyI6W3siY2VsbE5hbWUiOiJ3ZWJyLXdpZGdldC01IiwiaW5saW5lIjpmYWxzZSwibWV0aG9kTmFtZSI6ImludGVycHJldFF1aWV0Iiwic291cmNlIjoie1xuICAvLyBXYWl0IGZvciBvdXRwdXQgdG8gYmUgd3JpdHRlbiB0byB0aGUgRE9NLCB0aGVuIHRyaWdnZXIgd2lkZ2V0IHJlbmRlcmluZ1xuICBhd2FpdCBfd2Vicl92YWx1ZV81O1xuICBpZiAod2luZG93LkhUTUxXaWRnZXRzKSB7XG4gICAgd2luZG93LkhUTUxXaWRnZXRzLnN0YXRpY1JlbmRlcigpO1xuICB9XG4gIGlmICh3aW5kb3cuUGFnZWRUYWJsZURvYykge1xuICAgIHdpbmRvdy5QYWdlZFRhYmxlRG9jLmluaXRBbGwoKTtcbiAgfVxufVxuIn0seyJjZWxsTmFtZSI6IndlYnItNSIsImlubGluZSI6ZmFsc2UsIm1ldGhvZE5hbWUiOiJpbnRlcnByZXQiLCJzb3VyY2UiOiJ2aWV3b2YgX3dlYnJfZWRpdG9yXzUgPSB7XG4gIGNvbnN0IHsgV2ViUkV4ZXJjaXNlRWRpdG9yLCBiNjREZWNvZGUgfSA9IHdpbmRvdy5fZXhlcmNpc2Vfb2pzX3J1bnRpbWU7XG4gIGNvbnN0IHNjcmlwdENvbnRlbnQgPSBkb2N1bWVudC5xdWVyeVNlbGVjdG9yKGBzY3JpcHRbdHlwZT1cXFwid2Vici01LWNvbnRlbnRzXFxcIl1gKS50ZXh0Q29udGVudDtcbiAgY29uc3QgYmxvY2sgPSBKU09OLnBhcnNlKGI2NERlY29kZShzY3JpcHRDb250ZW50KSk7XG5cbiAgLy8gRGVmYXVsdCBleGVyY2lzZSBjb25maWd1cmF0aW9uXG4gIGNvbnN0IG9wdGlvbnMgPSBPYmplY3QuYXNzaWduKFxuICAgIHtcbiAgICAgIGlkOiBcIndlYnItNS1jb250ZW50c1wiLFxuICAgICAgZW52aXI6IGBleGVyY2lzZS1lbnYtJHtibG9jay5hdHRyLmV4ZXJjaXNlfWAsXG4gICAgICBlcnJvcjogZmFsc2UsXG4gICAgICBjYXB0aW9uOiAnRXhlcmNpc2UnLFxuICAgIH0sXG4gICAgYmxvY2suYXR0clxuICApO1xuXG4gIGNvbnN0IGVkaXRvciA9IG5ldyBXZWJSRXhlcmNpc2VFZGl0b3Iod2ViUk9qcy53ZWJSUHJvbWlzZSwgYmxvY2suY29kZSwgb3B0aW9ucyk7XG4gIHJldHVybiBlZGl0b3IuY29udGFpbmVyO1xufVxudmlld29mIF93ZWJyX3ZhbHVlXzUgPSB3ZWJST2pzLnByb2Nlc3MoX3dlYnJfZWRpdG9yXzUsIHt9KTtcbl93ZWJyX2ZlZWRiYWNrXzUgPSB7XG4gIGNvbnN0IHsgV2ViUkdyYWRlciB9ID0gd2luZG93Ll9leGVyY2lzZV9vanNfcnVudGltZTtcbiAgY29uc3QgZW1wdHlGZWVkYmFjayA9IGRvY3VtZW50LmNyZWF0ZUVsZW1lbnQoJ2RpdicpO1xuXG4gIGNvbnN0IGdyYWRlciA9IG5ldyBXZWJSR3JhZGVyKF93ZWJyX3ZhbHVlXzUuZXZhbHVhdG9yKTtcbiAgY29uc3QgZmVlZGJhY2sgPSBhd2FpdCBncmFkZXIuZ3JhZGVFeGVyY2lzZSgpO1xuICBpZiAoIWZlZWRiYWNrKSByZXR1cm4gZW1wdHlGZWVkYmFjaztcbiAgcmV0dXJuIGZlZWRiYWNrO1xufVxuIn0seyJjZWxsTmFtZSI6IndlYnItd2lkZ2V0LTIiLCJpbmxpbmUiOmZhbHNlLCJtZXRob2ROYW1lIjoiaW50ZXJwcmV0UXVpZXQiLCJzb3VyY2UiOiJ7XG4gIC8vIFdhaXQgZm9yIG91dHB1dCB0byBiZSB3cml0dGVuIHRvIHRoZSBET00sIHRoZW4gdHJpZ2dlciB3aWRnZXQgcmVuZGVyaW5nXG4gIGF3YWl0IF93ZWJyX3ZhbHVlXzI7XG4gIGlmICh3aW5kb3cuSFRNTFdpZGdldHMpIHtcbiAgICB3aW5kb3cuSFRNTFdpZGdldHMuc3RhdGljUmVuZGVyKCk7XG4gIH1cbiAgaWYgKHdpbmRvdy5QYWdlZFRhYmxlRG9jKSB7XG4gICAgd2luZG93LlBhZ2VkVGFibGVEb2MuaW5pdEFsbCgpO1xuICB9XG59XG4ifSx7ImNlbGxOYW1lIjoid2Vici0yIiwiaW5saW5lIjpmYWxzZSwibWV0aG9kTmFtZSI6ImludGVycHJldCIsInNvdXJjZSI6InZpZXdvZiBfd2Vicl9lZGl0b3JfMiA9IHtcbiAgY29uc3QgeyBXZWJSRXhlcmNpc2VFZGl0b3IsIGI2NERlY29kZSB9ID0gd2luZG93Ll9leGVyY2lzZV9vanNfcnVudGltZTtcbiAgY29uc3Qgc2NyaXB0Q29udGVudCA9IGRvY3VtZW50LnF1ZXJ5U2VsZWN0b3IoYHNjcmlwdFt0eXBlPVxcXCJ3ZWJyLTItY29udGVudHNcXFwiXWApLnRleHRDb250ZW50O1xuICBjb25zdCBibG9jayA9IEpTT04ucGFyc2UoYjY0RGVjb2RlKHNjcmlwdENvbnRlbnQpKTtcblxuICAvLyBEZWZhdWx0IGV4ZXJjaXNlIGNvbmZpZ3VyYXRpb25cbiAgY29uc3Qgb3B0aW9ucyA9IE9iamVjdC5hc3NpZ24oXG4gICAge1xuICAgICAgaWQ6IFwid2Vici0yLWNvbnRlbnRzXCIsXG4gICAgICBlbnZpcjogYGV4ZXJjaXNlLWVudi0ke2Jsb2NrLmF0dHIuZXhlcmNpc2V9YCxcbiAgICAgIGVycm9yOiBmYWxzZSxcbiAgICAgIGNhcHRpb246ICdFeGVyY2lzZScsXG4gICAgfSxcbiAgICBibG9jay5hdHRyXG4gICk7XG5cbiAgY29uc3QgZWRpdG9yID0gbmV3IFdlYlJFeGVyY2lzZUVkaXRvcih3ZWJST2pzLndlYlJQcm9taXNlLCBibG9jay5jb2RlLCBvcHRpb25zKTtcbiAgcmV0dXJuIGVkaXRvci5jb250YWluZXI7XG59XG52aWV3b2YgX3dlYnJfdmFsdWVfMiA9IHdlYlJPanMucHJvY2Vzcyhfd2Vicl9lZGl0b3JfMiwge30pO1xuX3dlYnJfZmVlZGJhY2tfMiA9IHtcbiAgY29uc3QgeyBXZWJSR3JhZGVyIH0gPSB3aW5kb3cuX2V4ZXJjaXNlX29qc19ydW50aW1lO1xuICBjb25zdCBlbXB0eUZlZWRiYWNrID0gZG9jdW1lbnQuY3JlYXRlRWxlbWVudCgnZGl2Jyk7XG5cbiAgY29uc3QgZ3JhZGVyID0gbmV3IFdlYlJHcmFkZXIoX3dlYnJfdmFsdWVfMi5ldmFsdWF0b3IpO1xuICBjb25zdCBmZWVkYmFjayA9IGF3YWl0IGdyYWRlci5ncmFkZUV4ZXJjaXNlKCk7XG4gIGlmICghZmVlZGJhY2spIHJldHVybiBlbXB0eUZlZWRiYWNrO1xuICByZXR1cm4gZmVlZGJhY2s7XG59XG4ifSx7ImNlbGxOYW1lIjoid2Vici1wcmVsdWRlIiwiaW5saW5lIjpmYWxzZSwibWV0aG9kTmFtZSI6ImludGVycHJldFF1aWV0Iiwic291cmNlIjoid2ViUk9qcyA9IHtcbiAgY29uc3QgeyBXZWJSLCBDaGFubmVsVHlwZSB9ID0gd2luZG93Ll9leGVyY2lzZV9vanNfcnVudGltZS5XZWJSO1xuICBjb25zdCB7XG4gICAgV2ViUkV2YWx1YXRvcixcbiAgICBXZWJSRW52aXJvbm1lbnRNYW5hZ2VyLFxuICAgIHNldHVwUixcbiAgICBiNjREZWNvZGUsXG4gICAgY29sbGFwc2VQYXRoXG4gIH0gPSB3aW5kb3cuX2V4ZXJjaXNlX29qc19ydW50aW1lO1xuXG4gIGNvbnN0IHN0YXR1c0NvbnRhaW5lciA9IGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKFwiZXhlcmNpc2UtbG9hZGluZy1zdGF0dXNcIik7XG4gIGNvbnN0IGluZGljYXRvckNvbnRhaW5lciA9IGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKFwiZXhlcmNpc2UtbG9hZGluZy1pbmRpY2F0b3JcIik7XG4gIGluZGljYXRvckNvbnRhaW5lci5jbGFzc0xpc3QucmVtb3ZlKFwiZC1ub25lXCIpO1xuXG4gIGxldCBzdGF0dXNUZXh0ID0gZG9jdW1lbnQuY3JlYXRlRWxlbWVudChcImRpdlwiKVxuICBzdGF0dXNUZXh0LmNsYXNzTGlzdCA9IFwiZXhlcmNpc2UtbG9hZGluZy1kZXRhaWxzXCI7XG4gIHN0YXR1c1RleHQgPSBzdGF0dXNDb250YWluZXIuYXBwZW5kQ2hpbGQoc3RhdHVzVGV4dCk7XG4gIHN0YXR1c1RleHQudGV4dENvbnRlbnQgPSBgSW5pdGlhbGlzZWA7XG5cbiAgLy8gSG9pc3QgaW5kaWNhdG9yIG91dCBmcm9tIGZpbmFsIHNsaWRlIHdoZW4gcnVubmluZyB1bmRlciByZXZlYWxcbiAgY29uc3QgcmV2ZWFsU3RhdHVzID0gZG9jdW1lbnQucXVlcnlTZWxlY3RvcihcIi5yZXZlYWwgLmV4ZXJjaXNlLWxvYWRpbmctaW5kaWNhdG9yXCIpO1xuICBpZiAocmV2ZWFsU3RhdHVzKSB7XG4gICAgcmV2ZWFsU3RhdHVzLnJlbW92ZSgpO1xuICAgIGRvY3VtZW50LnF1ZXJ5U2VsZWN0b3IoXCIucmV2ZWFsID4gLnNsaWRlc1wiKS5hcHBlbmRDaGlsZChyZXZlYWxTdGF0dXMpO1xuICB9XG5cbiAgLy8gTWFrZSBhbnkgcmV2ZWFsIHNsaWRlcyB3aXRoIGxpdmUgY2VsbHMgc2Nyb2xsYWJsZVxuICBkb2N1bWVudC5xdWVyeVNlbGVjdG9yQWxsKFwiLnJldmVhbCAuZXhlcmNpc2UtY2VsbFwiKS5mb3JFYWNoKChlbCkgPT4ge1xuICAgIGVsLmNsb3Nlc3QoJ3NlY3Rpb24uc2xpZGUnKS5jbGFzc0xpc3QuYWRkKFwic2Nyb2xsYWJsZVwiKTtcbiAgfSlcblxuICAvLyB3ZWJSIHN1cHBsZW1lbnRhbCBkYXRhIGFuZCBvcHRpb25zXG4gIGNvbnN0IGRhdGFDb250ZW50ID0gZG9jdW1lbnQucXVlcnlTZWxlY3Rvcihgc2NyaXB0W3R5cGU9XFxcIndlYnItZGF0YVxcXCJdYCkudGV4dENvbnRlbnQ7XG4gIGNvbnN0IGRhdGEgPSBKU09OLnBhcnNlKGI2NERlY29kZShkYXRhQ29udGVudCkpO1xuXG4gIC8vIEdyYWIgbGlzdCBvZiByZXNvdXJjZXMgdG8gYmUgZG93bmxvYWRlZFxuICBjb25zdCBmaWxlc0NvbnRlbnQgPSBkb2N1bWVudC5xdWVyeVNlbGVjdG9yKGBzY3JpcHRbdHlwZT1cXFwidmZzLWZpbGVcXFwiXWApLnRleHRDb250ZW50O1xuICBjb25zdCBmaWxlcyA9IEpTT04ucGFyc2UoYjY0RGVjb2RlKGZpbGVzQ29udGVudCkpO1xuXG4gIC8vIEluaXRpYWxpc2Ugd2ViUiBhbmQgc2V0dXAgZm9yIFIgY29kZSBldmFsdWF0aW9uXG4gIGxldCB3ZWJSUHJvbWlzZSA9IChhc3luYyAod2ViUikgPT4ge1xuICAgIHN0YXR1c1RleHQudGV4dENvbnRlbnQgPSBgRG93bmxvYWRpbmcgd2ViUmA7XG4gICAgYXdhaXQgd2ViUi5pbml0KCk7XG5cbiAgICAvLyBJbnN0YWxsIHByb3ZpZGVkIGxpc3Qgb2YgcGFja2FnZXNcbiAgICAvLyBFbnN1cmUgd2ViUiBkZWZhdWx0IHJlcG8gaXMgaW5jbHVkZWRcbiAgICBkYXRhLnBhY2thZ2VzLnJlcG9zLnB1c2goXCJodHRwczovL3JlcG8uci13YXNtLm9yZ1wiKVxuICAgIGF3YWl0IGRhdGEucGFja2FnZXMucGtncy5tYXAoKHBrZykgPT4gKCkgPT4ge1xuICAgICAgc3RhdHVzVGV4dC50ZXh0Q29udGVudCA9IGBEb3dubG9hZGluZyBwYWNrYWdlOiAke3BrZ31gO1xuICAgICAgcmV0dXJuIHdlYlIuZXZhbFJWb2lkKGBcbiAgICAgICAgd2Vicjo6aW5zdGFsbChwa2csIHJlcG9zID0gcmVwb3MpXG4gICAgICAgIGxpYnJhcnkocGtnLCBjaGFyYWN0ZXIub25seSA9IFRSVUUpXG4gICAgICBgLCB7IGVudjoge1xuICAgICAgICBwa2c6IHBrZyxcbiAgICAgICAgcmVwb3M6IGRhdGEucGFja2FnZXMucmVwb3MsXG4gICAgICB9fSk7XG4gICAgfSkucmVkdWNlKChjdXIsIG5leHQpID0+IGN1ci50aGVuKG5leHQpLCBQcm9taXNlLnJlc29sdmUoKSk7XG5cbiAgICAvLyBEb3dubG9hZCBhbmQgaW5zdGFsbCByZXNvdXJjZXNcbiAgICBhd2FpdCBmaWxlcy5tYXAoKGZpbGUpID0+IGFzeW5jICgpID0+IHtcbiAgICAgIGNvbnN0IG5hbWUgPSBmaWxlLnN1YnN0cmluZyhmaWxlLmxhc3RJbmRleE9mKCcvJykgKyAxKTtcbiAgICAgIHN0YXR1c1RleHQudGV4dENvbnRlbnQgPSBgRG93bmxvYWRpbmcgcmVzb3VyY2U6ICR7bmFtZX1gO1xuICAgICAgY29uc3QgcmVzcG9uc2UgPSBhd2FpdCBmZXRjaChmaWxlKTtcbiAgICAgIGlmICghcmVzcG9uc2Uub2spIHtcbiAgICAgICAgdGhyb3cgbmV3IEVycm9yKGBDYW4ndCBkb3dubG9hZCBcXGAke2ZpbGV9XFxgLiBFcnJvciAke3Jlc3BvbnNlLnN0YXR1c306IFwiJHtyZXNwb25zZS5zdGF0dXNUZXh0fVwiLmApO1xuICAgICAgfVxuICAgICAgY29uc3QgZGF0YSA9IGF3YWl0IHJlc3BvbnNlLmFycmF5QnVmZmVyKCk7XG5cbiAgICAgIC8vIFN0b3JlIFVSTHMgaW4gdGhlIGN3ZCB3aXRob3V0IGFueSBzdWJkaXJlY3Rvcnkgc3RydWN0dXJlXG4gICAgICBpZiAoZmlsZS5pbmNsdWRlcyhcIjovL1wiKSkge1xuICAgICAgICBmaWxlID0gbmFtZTtcbiAgICAgIH1cblxuICAgICAgLy8gQ29sbGFwc2UgaGlnaGVyIGRpcmVjdG9yeSBzdHJ1Y3R1cmVcbiAgICAgIGZpbGUgPSBjb2xsYXBzZVBhdGgoZmlsZSk7XG5cbiAgICAgIC8vIENyZWF0ZSBkaXJlY3RvcnkgdHJlZSwgaWdub3JpbmcgXCJkaXJlY3RvcnkgZXhpc3RzXCIgVkZTIGVycm9yc1xuICAgICAgY29uc3QgcGFydHMgPSBmaWxlLnNwbGl0KCcvJykuc2xpY2UoMCwgLTEpO1xuICAgICAgbGV0IHBhdGggPSAnJztcbiAgICAgIHdoaWxlIChwYXJ0cy5sZW5ndGggPiAwKSB7XG4gICAgICAgIHBhdGggKz0gcGFydHMuc2hpZnQoKSArICcvJztcbiAgICAgICAgY29uc3QgYW5hbHlzaXMgPSBhd2FpdCB3ZWJSLkZTLmFuYWx5emVQYXRoKHBhdGgpO1xuICAgICAgICBpZiAoIWFuYWx5c2lzLmV4aXN0cykge1xuICAgICAgICAgIHRyeSB7XG4gICAgICAgICAgICBhd2FpdCB3ZWJSLkZTLm1rZGlyKHBhdGgpO1xuICAgICAgICAgIH0gY2F0Y2ggKGUpIHtcbiAgICAgICAgICAgIHRocm93IG5ldyBFcnJvcihgRmlsZXN5c3RlbSBFcnJvcjogXCIke2UubWVzc2FnZX1cIi5gKTtcbiAgICAgICAgICB9XG4gICAgICAgIH1cbiAgICAgIH1cblxuICAgICAgLy8gV3JpdGUgdGhpcyBmaWxlIHRvIHRoZSBWRlNcbiAgICAgIHJldHVybiBhd2FpdCB3ZWJSLkZTLndyaXRlRmlsZShmaWxlLCBuZXcgVWludDhBcnJheShkYXRhKSk7XG4gICAgfSkucmVkdWNlKChjdXIsIG5leHQpID0+IGN1ci50aGVuKG5leHQpLCBQcm9taXNlLnJlc29sdmUoKSk7XG5cbiAgICBzdGF0dXNUZXh0LnRleHRDb250ZW50ID0gYEluc3RhbGxpbmcgd2ViUiBzaGltc2A7XG4gICAgYXdhaXQgd2ViUi5ldmFsUlZvaWQoYHdlYnI6OnNoaW1faW5zdGFsbCgpYCk7XG5cbiAgICBzdGF0dXNUZXh0LnRleHRDb250ZW50ID0gYFdlYlIgZW52aXJvbm1lbnQgc2V0dXBgO1xuICAgIGF3YWl0IHNldHVwUih3ZWJSLCBkYXRhKTtcblxuICAgIHN0YXR1c1RleHQucmVtb3ZlKCk7XG4gICAgaWYgKHN0YXR1c0NvbnRhaW5lci5jaGlsZHJlbi5sZW5ndGggPT0gMCkge1xuICAgICAgc3RhdHVzQ29udGFpbmVyLnBhcmVudE5vZGUucmVtb3ZlKCk7XG4gICAgfVxuICAgIHJldHVybiB3ZWJSO1xuICB9KShuZXcgV2ViUihkYXRhLm9wdGlvbnMpKTtcblxuICAvLyBLZWVwIHRyYWNrIG9mIGluaXRpYWwgT0pTIGJsb2NrIHJlbmRlclxuICBjb25zdCByZW5kZXJlZE9qcyA9IHt9O1xuXG4gIGNvbnN0IHByb2Nlc3MgPSBhc3luYyAoY29udGV4dCwgaW5wdXRzKSA9PiB7XG4gICAgY29uc3Qgd2ViUiA9IGF3YWl0IHdlYlJQcm9taXNlO1xuICAgIGNvbnN0IGV2YWx1YXRvciA9IG5ldyBXZWJSRXZhbHVhdG9yKHdlYlIsIGNvbnRleHQpXG4gICAgYXdhaXQgZXZhbHVhdG9yLnByb2Nlc3MoaW5wdXRzKTtcbiAgICByZXR1cm4gZXZhbHVhdG9yLmNvbnRhaW5lcjtcbiAgfVxuXG4gIHJldHVybiB7XG4gICAgcHJvY2VzcyxcbiAgICB3ZWJSUHJvbWlzZSxcbiAgICByZW5kZXJlZE9qcyxcbiAgfTtcbn1cbiJ9XX0=
+</script>
+<div id="exercise-loading-indicator" class="exercise-loading-indicator d-none d-flex align-items-center gap-2">
+<div id="exercise-loading-status" class="d-flex gap-2">
+
+</div>
+<div class="spinner-grow spinner-grow-sm">
+
+</div>
+</div>
+<script type="vfs-file">
+W10=
+</script>
+<div id="refs" class="references csl-bib-body hanging-indent" role="list" style="display: none">
+<div id="ref-vanbuuren2018" class="csl-entry" role="listitem">
+Buuren, Stef van. 2018. <em>Flexible Imputation of Missing Data</em>. 2nd ed. Chapman; Hall/CRC. <a href="https://stefvanbuuren.name/fimd/">https://stefvanbuuren.name/fimd/</a>.
+</div>
+<div id="ref-pishgar2021" class="csl-entry" role="listitem">
+Pishgar, Farhad, Noah Greifer, Clémence Leyrat, and Elizabeth Stuart. 2021. <span>“<span>MatchThem</span>:: Matching and Weighting After Multiple Imputation.”</span> <em>The R Journal</em> 13 (2): 292–305. <a href="https://doi.org/10.32614/RJ-2021-073">https://doi.org/10.32614/RJ-2021-073</a>.
+</div>
+<div id="ref-sterne2009" class="csl-entry" role="listitem">
+<span class="nocase">Sterne, Jonathan A. C., Ian R. White, John B. Carlin, et al.</span> 2009. <span>“Multiple Imputation for Missing Data in Epidemiological and Clinical Research: Potential and Pitfalls.”</span> <em>BMJ</em> 338: b2393. <a href="https://doi.org/10.1136/bmj.b2393">https://doi.org/10.1136/bmj.b2393</a>.
+</div>
+<div id="ref-white2009" class="csl-entry" role="listitem">
+White, Ian R., and Patrick Royston. 2009. <span>“Imputing Missing Covariate Values for the <span>Cox</span> Model.”</span> <em>Statistics in Medicine</em> 28 (15): 1982–98. <a href="https://doi.org/10.1002/sim.3618">https://doi.org/10.1002/sim.3618</a>.
+</div>
+</div>
+</section>
+
+</main> <!-- /main -->
+<script type="ojs-module-contents">
+eyJjb250ZW50cyI6W3sibWV0aG9kTmFtZSI6ImludGVycHJldCIsImNlbGxOYW1lIjoib2pzLWNlbGwtMSIsImlubGluZSI6ZmFsc2UsInNvdXJjZSI6ImltcG9ydCB7cXVpen0gZnJvbSBcIi4vanMvc3VydnRvb2xzLmpzXCJcbiJ9LHsibWV0aG9kTmFtZSI6ImludGVycHJldCIsImNlbGxOYW1lIjoib2pzLWNlbGwtMiIsImlubGluZSI6ZmFsc2UsInNvdXJjZSI6InF1aXooW1xuIHtcbiAgXCJxXCI6IFwiQSBibG9vZCB0ZXN0IHJlc3VsdCBpcyBtaXNzaW5nIG1vcmUgb2Z0ZW4gZm9yIHBhdGllbnRzIHdobyBsYXRlciBkaWVkLiBEZWF0aCBpcyByZWNvcmRlZCBmb3IgZXZlcnlvbmUuIFdoYXQga2luZCBvZiBtaXNzaW5nbmVzcyBpcyB0aGlzP1wiLFxuICBcIm9wdGlvbnNcIjogW1wiTUNBUlwiLCBcIk1BUlwiLCBcIk1OQVJcIiwgXCJJdCBpc24ndCBtaXNzaW5nIGRhdGFcIl0sXG4gIFwiYW5zd2VyXCI6IDEsXG4gIFwid2h5XCI6IFwiV2hldGhlciB0aGUgdmFsdWUgaXMgbWlzc2luZyBkZXBlbmRzIG9uIHNvbWV0aGluZyB0aGF0IGlzIHJlY29yZGVkIChkZWF0aCksIHNvIGl0J3MgbWlzc2luZyBhdCByYW5kb20gZ2l2ZW4gdGhlIGRhdGEuIEEgY29tcGxldGUtY2FzZSBDb3ggYW5hbHlzaXMgaXMgbGlrZWx5IHRvIGJlIGJpYXNlZDsgbXVsdGlwbGUgaW1wdXRhdGlvbiBpbmNsdWRpbmcgdGhlIG91dGNvbWUgY2FuIGZpeCBpdC5cIixcbiAgXCJoaW50c1wiOiBbXG4gICBcIk1DQVIgd291bGQgbWVhbiBtaXNzaW5nbmVzcyBoYXMgbm90aGluZyB0byBkbyB3aXRoIHRoZSBwYXRpZW50LlwiLFxuICAgXCJcIixcbiAgIFwiTU5BUiB3b3VsZCBtZWFuIGl0IGRlcGVuZHMgb24gdGhlIG1pc3NpbmcgdmFsdWUgaXRzZWxmLCBvciBvbiBzb21ldGhpbmcgbm90IHJlY29yZGVkLlwiLFxuICAgXCJUaGUgdGVzdCByZXN1bHQgaXMgdW5rbm93biBmb3IgdGhlc2UgcGF0aWVudHMuXCJcbiAgXVxuIH0sXG4ge1xuICBcInFcIjogXCJXaHkgc2hvdWxkIHRoZSBzdXJ2aXZhbCBvdXRjb21lIGJlIGluY2x1ZGVkIHdoZW4gaW1wdXRpbmcgYSBtaXNzaW5nIGNvdmFyaWF0ZT9cIixcbiAgXCJvcHRpb25zXCI6IFtcbiAgIFwiTGVhdmluZyBpdCBvdXQgYmlhc2VzIHRoZSBjb3ZhcmlhdGUncyBlc3RpbWF0ZWQgZWZmZWN0IHRvd2FyZHMgbm8gZWZmZWN0XCIsXG4gICBcIkl0IG1ha2VzIHRoZSBpbXB1dGF0aW9uIHJ1biBmYXN0ZXJcIixcbiAgIFwiSXQgaXNuJ3QgbmVlZGVkOiB0aGUgb3V0Y29tZSBzaG91bGQgbmV2ZXIgYmUgdXNlZFwiLFxuICAgXCJCZWNhdXNlIDxjb2RlPm1pY2UoKTwvY29kZT4gZmFpbHMgd2l0aG91dCBpdFwiXG4gIF0sXG4gIFwiYW5zd2VyXCI6IDAsXG4gIFwid2h5XCI6IFwiSWYgdGhlIGltcHV0YXRpb24gbW9kZWwgaWdub3JlcyB0aGUgb3V0Y29tZSwgdGhlIGltcHV0ZWQgdmFsdWVzIGhhdmUgbm8gcmVsYXRpb25zaGlwIHdpdGggaXQsIHdoaWNoIGRpbHV0ZXMgdGhlIGFzc29jaWF0aW9uLiBJbmNsdWRlIHN0YXR1cyBhbmQgdGhlIE5lbHNvbuKAk0FhbGVuIGVzdGltYXRlLlwiLFxuICBcImhpbnRzXCI6IFtcbiAgIFwiXCIsXG4gICBcIkl0J3MgYWJvdXQgYmlhcywgbm90IHNwZWVkLlwiLFxuICAgXCJJdCBmZWVscyBsaWtlIGNoZWF0aW5nLCBidXQgaXQncyBuZWVkZWQgdG8gYXZvaWQgYmlhcy5cIixcbiAgIFwiPGNvZGU+bWljZSgpPC9jb2RlPiBydW5zIGVpdGhlciB3YXkuXCJcbiAgXVxuIH0sXG4ge1xuICBcInFcIjogXCJXaGF0IGRvZXMgPGNvZGU+cG9vbCgpPC9jb2RlPiBkbz9cIixcbiAgXCJvcHRpb25zXCI6IFtcbiAgIFwiQ29tYmluZXMgdGhlIHJlc3VsdHMgZnJvbSB0aGUgaW1wdXRlZCBkYXRhc2V0cyB1c2luZyBSdWJpbidzIHJ1bGVzXCIsXG4gICBcIlN0YWNrcyB0aGUgaW1wdXRlZCBkYXRhc2V0cyBpbnRvIG9uZSBiaWcgZGF0YXNldCBhbmQgZml0cyBhIHNpbmdsZSBtb2RlbFwiLFxuICAgXCJQaWNrcyB0aGUgaW1wdXRlZCBkYXRhc2V0IHdpdGggdGhlIGJlc3QgZml0XCIsXG4gICBcIkZpbGxzIGluIHRoZSBtaXNzaW5nIHZhbHVlc1wiXG4gIF0sXG4gIFwiYW5zd2VyXCI6IDAsXG4gIFwid2h5XCI6IFwicG9vbCgpIGF2ZXJhZ2VzIHRoZSBlc3RpbWF0ZXMgYW5kIGNvbWJpbmVzIHRoZSB3aXRoaW4tIGFuZCBiZXR3ZWVuLWltcHV0YXRpb24gdmFyaWF0aW9uIGludG8gdGhlIHN0YW5kYXJkIGVycm9yLlwiLFxuICBcImhpbnRzXCI6IFtcbiAgIFwiXCIsXG4gICBcIlN0YWNraW5nIHdvdWxkIG1ha2UgdGhlIENJIGZhciB0b28gbmFycm93LlwiLFxuICAgXCJFdmVyeSBpbXB1dGVkIGRhdGFzZXQgaXMgdXNlZC5cIixcbiAgIFwiVGhhdCdzIHdoYXQgPGNvZGU+bWljZSgpPC9jb2RlPiBkb2VzLlwiXG4gIF1cbiB9LFxuIHtcbiAgXCJxXCI6IFwiQSBjb25mb3VuZGVyIGlzIG1pc3NpbmcgZm9yIDMwJSBvZiBwYXRpZW50cy4gWW91IHdhbnQgdG8gdXNlIHByb3BlbnNpdHkgc2NvcmUgbWF0Y2hpbmcuIFdoYXQgaXMgYSBnb29kIGFwcHJvYWNoP1wiLFxuICBcIm9wdGlvbnNcIjogW1xuICAgXCJNdWx0aXBseSBpbXB1dGUsIHRoZW4gbWF0Y2ggd2l0aGluIGVhY2ggaW1wdXRlZCBkYXRhc2V0IGFuZCBwb29sIChlLmcuIE1hdGNoVGhlbSlcIixcbiAgIFwiTWF0Y2ggdGhlIGNvbXBsZXRlIGNhc2VzIG9ubHlcIixcbiAgIFwiUmVwbGFjZSBlYWNoIG1pc3NpbmcgdmFsdWUgd2l0aCB0aGUgbWVhblwiLFxuICAgXCJMZWF2ZSB0aGUgY29uZm91bmRlciBvdXQgb2YgdGhlIHByb3BlbnNpdHkgc2NvcmUgbW9kZWxcIlxuICBdLFxuICBcImFuc3dlclwiOiAwLFxuICBcIndoeVwiOiBcIk1hdGNoVGhlbSBtYXRjaGVzIHdpdGhpbiBlYWNoIGltcHV0ZWQgZGF0YXNldCBhbmQgcG9vbHMgdGhlIGVmZmVjdCBlc3RpbWF0ZXMuIENvbXBsZXRlIGNhc2VzIGNhbiBiZSBiaWFzZWQsIG1lYW4gaW1wdXRhdGlvbiB1bmRlcnN0YXRlcyB1bmNlcnRhaW50eSwgYW5kIGxlYXZpbmcgb3V0IGEgY29uZm91bmRlciBsZWF2ZXMgY29uZm91bmRpbmcuXCIsXG4gIFwiaGludHNcIjogW1xuICAgXCJcIixcbiAgIFwiVGhhdCBjYW4gYmUgYmlhc2VkLCBhcyBpbiB0aGlzIGNoYXB0ZXIncyBleGFtcGxlIChIUiAwLjU2IGluc3RlYWQgb2YgYWJvdXQgMC43MykuXCIsXG4gICBcIlNpbmdsZSBtZWFuIGltcHV0YXRpb24gaWdub3JlcyB0aGUgdW5jZXJ0YWludHkgYW5kIGNhbiBkaXN0b3J0IHJlbGF0aW9uc2hpcHMuXCIsXG4gICBcIlRoZW4gbm90aGluZyBiYWxhbmNlcyB0aGF0IGNvbmZvdW5kZXIuXCJcbiAgXVxuIH1cbl0pXG4ifV19
+</script>
+<script type="module">
+if (window.location.protocol === "file:") { alert("The OJS runtime does not work with file:// URLs. Please use a web server to view this document."); }
+window._ojs.paths.runtimeToDoc = "../..";
+window._ojs.paths.runtimeToRoot = "../..";
+window._ojs.paths.docToRoot = "";
+window._ojs.selfContained = false;
+window._ojs.runtime.interpretFromScriptTags();
+</script>
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    // Ensure there is a toggle, if there isn't float one in the top right
+    if (window.document.querySelector('.quarto-color-scheme-toggle') === null) {
+      const a = window.document.createElement('a');
+      a.classList.add('top-right');
+      a.classList.add('quarto-color-scheme-toggle');
+      a.href = "";
+      a.onclick = function() { try { window.quartoToggleColorScheme(); } catch {} return false; };
+      const i = window.document.createElement("i");
+      i.classList.add('bi');
+      a.appendChild(i);
+      window.document.body.appendChild(a);
+    }
+    setColorSchemeToggle(hasAlternateSentinel())
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+<nav class="page-navigation">
+  <div class="nav-page nav-page-previous">
+      <a href="./10-non-ph.html" class="pagination-link" aria-label="When proportional hazards fail">
+        <i class="bi bi-arrow-left-short"></i> <span class="nav-page-text"><span class="chapter-number">10</span>&nbsp; <span class="chapter-title">When proportional hazards fail</span></span>
+      </a>          
+  </div>
+  <div class="nav-page nav-page-next">
+      <a href="./a1-cheatsheet.html" class="pagination-link" aria-label="R cheat sheet">
+        <span class="nav-page-text"><span class="chapter-number">A</span>&nbsp; <span class="chapter-title">R cheat sheet</span></span> <i class="bi bi-arrow-right-short"></i>
+      </a>
+  </div>
+</nav>
+</div> <!-- /content -->
+<footer class="footer">
+  <div class="nav-footer">
+    <div class="nav-footer-left">
+      &nbsp;
+    </div>   
+    <div class="nav-footer-center">
+<p>© 2026 Tom Goodale. Text and figures licensed under <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>; code licensed under the <a href="LICENSE.md">MIT licence</a>.</p>
+</div>
+    <div class="nav-footer-right">
+      &nbsp;
+    </div>
+  </div>
+</footer>
+
+
+
+
+</body></html>
