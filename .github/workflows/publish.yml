@@ -20,7 +20,7 @@ jobs:
       contents: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # Pinned to the version the book was built and tested with. To upgrade,
       # install the new version locally, check the book (especially the live

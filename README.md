@@ -134,6 +134,11 @@ quarto publish gh-pages
 Answer **Y** when it asks to publish. This renders the book, creates a
 `gh-pages` branch holding the website, and prints the site's address.
 
+The push in step 5 also started an automatic build, which will have
+**failed**, because the `gh-pages` branch didn't exist yet. That's
+expected: you can ignore it, or delete it from the **Actions** tab. Builds
+from later pushes work.
+
 **7. Turn on GitHub Pages**
 
 On GitHub, open the repository's **Settings ▸ Pages**. Under *Build and
@@ -174,6 +179,12 @@ on your computer.
   `_freeze/` and push again.
 - **The build fails with a permissions error.** Check the Workflow
   permissions setting in step 7.
+- **The very first build failed.** That's the one started by step 5,
+  before the `gh-pages` branch existed. See step 6.
+- **"Node.js 20 is deprecated" warnings.** GitHub periodically retires
+  old versions of the standard actions. These are warnings, not errors:
+  update the version number in `.github/workflows/publish.yml` (for
+  example `actions/checkout@v6`) when convenient.
 - **The site shows a 404 page.** Wait a few minutes after the first
   publish, and check the Pages settings in step 7.
 - **Upgrading Quarto.** Install the new version locally, run `quarto
